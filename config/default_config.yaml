@@ -1,0 +1,139 @@
+# =============================================================================
+# Stewart Platform - Standard konfigurasjon
+# =============================================================================
+# Denne filen inneholder alle justerbare parametere for plattformen.
+# Rediger verdiene her for å tilpasse systemet uten å endre koden.
+# Last inn med: PlatformConfig.load("config/default_config.yaml")
+# =============================================================================
+
+# --- I2C-innstillinger ---
+# Bussnummer: 1 er standard på Raspberry Pi 4B (GPIO 2/3).
+# Adressene kan endres ved å justere adressepinnene på komponentene.
+i2c_bus_number: 1
+pca9685_address: 0x40          # PCA9685 PWM-driver (standard: 0x40)
+pca9685_frequency: 50          # Hz - standard for servoer (20 ms periode)
+lsm6dsox_top_address: 0x6A    # LSM6DSOXTR IMU på toppplaten
+base_imu_address: 0x6B         # IMU på bunnplaten
+
+# --- Plattformgeometri ---
+# Alle lengder i millimeter, alle vinkler i grader.
+# Juster disse etter den faktiske plattformen er bygget.
+base_radius: 100.0             # Radius fra senter til leddpunkt på bunnplaten
+platform_radius: 75.0          # Radius fra senter til leddpunkt på toppplaten
+servo_horn_length: 25.0        # Lengde på servoarmen (horn)
+rod_length: 150.0              # Lengde på forbindelsesstagen
+home_height: 120.0             # Hvilehøyde for toppplaten over bunnplaten
+
+# Vinkler (i grader) for de 6 leddpunktene på hver plate.
+# Juster for å matche fysisk plassering av leddene.
+base_joint_angles:
+  - 0.0
+  - 60.0
+  - 120.0
+  - 180.0
+  - 240.0
+  - 300.0
+
+platform_joint_angles:
+  - 30.0
+  - 90.0
+  - 150.0
+  - 210.0
+  - 270.0
+  - 330.0
+
+# --- Servokonfigurasjon ---
+# Hver servo har individuell konfigurasjon for enkel tilpasning.
+# channel:           PCA9685-kanal (0-15)
+# min_pulse_us:      Minimum pulsbredde i mikrosekunder
+# max_pulse_us:      Maksimum pulsbredde i mikrosekunder
+# min_angle_deg:     Minimum vinkel (mekanisk grense)
+# max_angle_deg:     Maksimum vinkel (mekanisk grense)
+# home_angle_deg:    Nøytral vinkel (hjemmeposisjon)
+# direction:         Rotasjonsretning (+1 normal, -1 invertert)
+# offset_deg:        Kalibreringsoffset i grader
+# mounting_angle_deg: Servoens monteringsvinkel på bunnplaten
+servo_configs:
+  - channel: 0
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    home_angle_deg: 90.0
+    direction: 1
+    offset_deg: 0.0
+    mounting_angle_deg: 0.0
+
+  - channel: 1
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    home_angle_deg: 90.0
+    direction: 1
+    offset_deg: 0.0
+    mounting_angle_deg: 60.0
+
+  - channel: 2
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    home_angle_deg: 90.0
+    direction: 1
+    offset_deg: 0.0
+    mounting_angle_deg: 120.0
+
+  - channel: 3
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    home_angle_deg: 90.0
+    direction: 1
+    offset_deg: 0.0
+    mounting_angle_deg: 180.0
+
+  - channel: 4
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    home_angle_deg: 90.0
+    direction: 1
+    offset_deg: 0.0
+    mounting_angle_deg: 240.0
+
+  - channel: 5
+    min_pulse_us: 500
+    max_pulse_us: 2500
+    min_angle_deg: 0.0
+    max_angle_deg: 180.0
+    home_angle_deg: 90.0
+    direction: 1
+    offset_deg: 0.0
+    mounting_angle_deg: 300.0
+
+# --- PID-regulatorinnstillinger ---
+# Start med lave verdier og juster opp gradvis under testing.
+pid_gains:
+  kp: 1.0                     # Proporsjonal forsterkning
+  ki: 0.0                     # Integral forsterkning (start med 0)
+  kd: 0.0                     # Derivat forsterkning (start med 0)
+  output_min: -1.0             # Minimum regulatorutgang
+  output_max: 1.0              # Maksimum regulatorutgang
+  integral_limit: 100.0        # Anti-windup grense
+
+# Kontrollsløyfe-frekvens i Hz.
+control_loop_rate_hz: 50.0
+
+# --- Sikkerhetsgrenser ---
+# Juster etter behov. Start konservativt og utvid gradvis.
+safety_config:
+  max_translation_mm: 50.0             # Maks avstand fra senter
+  max_rotation_deg: 30.0               # Maks rotasjon fra nøytral
+  max_velocity_mm_per_s: 100.0         # Maks lineær hastighet
+  max_angular_velocity_deg_per_s: 60.0 # Maks vinkelhastighet
+  servo_angle_margin_deg: 5.0          # Sikkerhetsmargin fra mekanisk grense
+  watchdog_timeout_s: 1.0              # Watchdog-tidsgrense
+  imu_fault_threshold_g: 4.0           # Terskel for IMU-feildeteksjon
