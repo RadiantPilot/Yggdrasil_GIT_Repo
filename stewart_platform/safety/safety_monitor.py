@@ -91,7 +91,10 @@ class SafetyMonitor:
         Returns:
             True hvis posen er innenfor grensene.
         """
-        raise NotImplementedError
+        return pose.is_within_bounds(
+            self._config.max_translation_mm,
+            self._config.max_rotation_deg,
+        )
 
     def validate_servo_angles(self, angles: List[float]) -> bool:
         """Sjekk om alle servovinkler er innenfor mekaniske grenser.
@@ -105,7 +108,12 @@ class SafetyMonitor:
         Returns:
             True hvis alle vinkler er innenfor grensene med margin.
         """
-        raise NotImplementedError
+        margin = self._config.servo_angle_margin_deg
+        for i, angle in enumerate(angles):
+            sc = self._servo_configs[i]
+            if angle < sc.min_angle_deg + margin or angle > sc.max_angle_deg - margin:
+                return False
+        return True
 
     def validate_velocity(
         self,
@@ -127,7 +135,20 @@ class SafetyMonitor:
         Returns:
             True hvis hastigheten er innenfor grensene.
         """
-        raise NotImplementedError
+        if dt <= 0:
+            return True
+
+        delta_trans = current.translation - previous.translation
+        linear_speed = delta_trans.magnitude() / dt
+        if linear_speed > self._config.max_velocity_mm_per_s:
+            return False
+
+        delta_rot = current.rotation - previous.rotation
+        angular_speed = delta_rot.magnitude() / dt
+        if angular_speed > self._config.max_angular_velocity_deg_per_s:
+            return False
+
+        return True
 
     def validate_imu_readings(self, accel: Vector3) -> bool:
         """Sjekk at IMU-akselerasjonsdata er innenfor fornuftige verdier.
@@ -141,7 +162,9 @@ class SafetyMonitor:
         Returns:
             True hvis akselerasjonen er under imu_fault_threshold_g.
         """
-        raise NotImplementedError
+        # Konverter terskel fra g til m/s² (1g ≈ 9.81 m/s²)
+        threshold_ms2 = self._config.imu_fault_threshold_g * 9.81
+        return accel.magnitude() <= threshold_ms2
 
     def trigger_emergency_stop(self) -> None:
         """Utløs nødstopp.
@@ -190,4 +213,38 @@ class SafetyMonitor:
         Returns:
             SafetyCheckResult med status og eventuelle brudd.
         """
-        raise NotImplementedError
+        violations: List[str] = []
+
+        if not self.validate_pose(pose):
+            violations.append("Pose utenfor tillatte grenser.")
+
+        if not self.validate_servo_angles(angles):
+            violations.append("Servovinkler utenfor tillatte grenser.")
+
+        if not self.validate_imu_readings(accel):
+            violations.append("IMU-akselerasjon over feilterskel.")
+
+        if not self.validate_velocity(pose, self._last_pose, dt):
+            violations.append("Hastighet over tillatt grense.")
+
+        self._last_pose = pose
+
+        if not violations:
+            return SafetyCheckResult(is_safe=True)
+
+        # Bestem alvorlighetsgrad basert på antall brudd
+        if len(violations) >= 3:
+            severity = SafetySeverity.CRITICAL
+        elif len(violations) >= 2:
+            severity = SafetySeverity.ERROR
+        else:
+            severity = SafetySeverity.ERROR
+
+        if severity == SafetySeverity.CRITICAL:
+            self.trigger_emergency_stop()
+
+        return SafetyCheckResult(
+            is_safe=False,
+            violations=violations,
+            severity=severity,
+        )

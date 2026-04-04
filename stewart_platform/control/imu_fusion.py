@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import math
+
 from ..geometry.vector3 import Vector3
 
 
@@ -53,7 +55,24 @@ class IMUFusion:
         Returns:
             Oppdatert orientering som Vector3 (roll, pitch, yaw) i grader.
         """
-        raise NotImplementedError
+        # Beregn roll og pitch fra akselerometer (via atan2)
+        accel_roll = math.degrees(math.atan2(accel.y, accel.z))
+        accel_pitch = math.degrees(math.atan2(-accel.x,
+                      math.sqrt(accel.y ** 2 + accel.z ** 2)))
+
+        # Integrer gyroskopdata
+        gyro_roll = self._current_orientation.x + gyro.x * dt
+        gyro_pitch = self._current_orientation.y + gyro.y * dt
+        gyro_yaw = self._current_orientation.z + gyro.z * dt
+
+        # Komplementærfilter: kombiner akselerometer og gyroskop
+        roll = self._alpha * gyro_roll + (1.0 - self._alpha) * accel_roll
+        pitch = self._alpha * gyro_pitch + (1.0 - self._alpha) * accel_pitch
+        # Yaw kan ikke estimeres fra akselerometer alene — bruk kun gyroskop
+        yaw = gyro_yaw
+
+        self._current_orientation = Vector3(roll, pitch, yaw)
+        return self._current_orientation
 
     def get_orientation(self) -> Vector3:
         """Hent nåværende estimert orientering.

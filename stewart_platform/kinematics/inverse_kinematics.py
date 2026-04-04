@@ -116,34 +116,41 @@ class InverseKinematics:
             Servovinkel i grader.
         """
         sc = self._servo_configs[servo_index]
-        mount_rad = math.radians(sc.mounting_angle_deg)
+        # Servoens effektive retning = bunnleddets vinkel + monteringsoffset
+        base_angle = self._geometry._base_joint_angles[servo_index]
+        effective_mount_rad = math.radians(base_angle + sc.mounting_angle_deg)
         a = self._geometry._servo_horn_length
         s = self._geometry._rod_length
 
         # Dekomponér beinvektor i servoens lokale koordinater
-        L_r = leg_vector.x * math.cos(mount_rad) + leg_vector.y * math.sin(mount_rad)
+        L_r = leg_vector.x * math.cos(effective_mount_rad) + leg_vector.y * math.sin(effective_mount_rad)
         L_z = leg_vector.z
 
         # Total beinlengde (3D)
         d_sq = leg_vector.x ** 2 + leg_vector.y ** 2 + leg_vector.z ** 2
 
-        # Likning: d² + a² - s² = 2a(L_r·cos(α) + L_z·sin(α))
+        # Servovinkel α måles fra ned-posisjon (0°=ned, 90°=horisontal, 180°=opp).
+        # Hornspiss relativ til bunnledd: (a·sin(α)·cos(m), a·sin(α)·sin(m), -a·cos(α))
+        # Stang-constraint: L_r·sin(α) - L_z·cos(α) = M
         M = (d_sq + a ** 2 - s ** 2) / (2.0 * a)
 
-        # R·cos(α - φ) = M der R = sqrt(L_r² + L_z²), φ = atan2(L_z, L_r)
+        # Omskrevet: R·sin(α - δ) = M, der R = √(L_r² + L_z²), δ = atan2(L_z, L_r)
         R = math.sqrt(L_r ** 2 + L_z ** 2)
         if R < 1e-10:
             raise ValueError("Beinvektor har null lengde i servoplanet.")
 
-        cos_val = M / R
-        if abs(cos_val) > 1.0:
+        sin_val = M / R
+        # Klem verdien til [-1, 1] for å håndtere marginale tilfeller
+        # nær arbeidsområdets grense (numerisk toleranse ~2%).
+        if abs(sin_val) > 1.1:
             raise ValueError(
                 f"Pose er ikke oppnåelig for servo {servo_index}: "
-                f"cos = {cos_val:.4f}."
+                f"sin = {sin_val:.4f}."
             )
+        sin_val = max(-1.0, min(1.0, sin_val))
 
-        phi = math.atan2(L_z, L_r)
-        alpha = phi + math.acos(cos_val)
+        delta = math.atan2(L_z, L_r)
+        alpha = delta + math.asin(sin_val)
 
         # Anvend servoens retning
         angle_deg = math.degrees(alpha)

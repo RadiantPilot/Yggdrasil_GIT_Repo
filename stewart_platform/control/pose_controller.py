@@ -49,7 +49,24 @@ class PoseController:
         Returns:
             Korrigert pose som kan sendes til IK-solveren.
         """
-        raise NotImplementedError
+        from ..geometry.vector3 import Vector3
+
+        setpoints = [
+            target.translation.x, target.translation.y, target.translation.z,
+            target.rotation.x, target.rotation.y, target.rotation.z,
+        ]
+        measurements = [
+            current.translation.x, current.translation.y, current.translation.z,
+            current.rotation.x, current.rotation.y, current.rotation.z,
+        ]
+        outputs = [
+            self._controllers[i].update(setpoints[i], measurements[i], dt)
+            for i in range(6)
+        ]
+        return Pose(
+            translation=Vector3(outputs[0], outputs[1], outputs[2]),
+            rotation=Vector3(outputs[3], outputs[4], outputs[5]),
+        )
 
     def reset(self) -> None:
         """Nullstill alle 6 PID-regulatorer.

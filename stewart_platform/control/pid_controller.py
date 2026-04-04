@@ -49,7 +49,24 @@ class PIDController:
         Returns:
             Korreksjonsverdi begrenset til [output_min, output_max].
         """
-        raise NotImplementedError
+        error = setpoint - measurement
+
+        # Proporsjonalledd
+        p_term = self._gains.kp * error
+
+        # Integralledd med anti-windup
+        self._integral += error * dt
+        self._integral = max(-self._gains.integral_limit,
+                             min(self._gains.integral_limit, self._integral))
+        i_term = self._gains.ki * self._integral
+
+        # Derivatledd
+        d_term = self._gains.kd * (error - self._previous_error) / dt if dt > 0 else 0.0
+        self._previous_error = error
+
+        # Sum med utgangsbegrensning
+        output = p_term + i_term + d_term
+        return max(self._gains.output_min, min(self._gains.output_max, output))
 
     def reset(self) -> None:
         """Nullstill regulatorens interne tilstand.
@@ -58,7 +75,8 @@ class PIDController:
         ved oppstart eller etter nødstopp for å unngå
         uventede utslag fra gammelt integralbidrag.
         """
-        raise NotImplementedError
+        self._integral = 0.0
+        self._previous_error = 0.0
 
     def set_gains(self, gains: PIDGains) -> None:
         """Oppdater forsterkningsparametrene.
