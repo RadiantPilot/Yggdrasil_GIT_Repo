@@ -72,7 +72,41 @@ class MotionController:
             RuntimeError: Hvis maskinvareinitialisering feiler
                           (f.eks. I2C-enhet ikke funnet).
         """
-        raise NotImplementedError
+        from ..geometry.platform_geometry import PlatformGeometry
+        from ..hardware.i2c_bus import I2CBus
+        from ..hardware.pca9685_driver import PCA9685Driver
+        from ..hardware.lsm6dsox_driver import LSM6DSOXDriver
+        from ..hardware.base_imu_driver import BaseIMUDriver
+        from ..kinematics.inverse_kinematics import InverseKinematics
+        from ..safety.safety_monitor import SafetyMonitor
+        from ..servo.servo_array import ServoArray
+        from .imu_fusion import IMUFusion
+        from .pose_controller import PoseController
+
+        cfg = self._config
+
+        # I2C og maskinvare
+        bus = I2CBus(cfg.i2c_bus_number)
+        driver = PCA9685Driver(bus, cfg.pca9685_address, cfg.pca9685_frequency)
+        self._servo_array = ServoArray(cfg.servo_configs, driver)
+
+        # IMU-sensorer
+        self._top_imu = LSM6DSOXDriver(bus, cfg.lsm6dsox_top_address)
+        self._base_imu = BaseIMUDriver(bus, cfg.base_imu_address)
+
+        # Geometri og kinematikk
+        geometry = PlatformGeometry(cfg)
+        self._ik_solver = InverseKinematics(geometry, cfg.servo_configs)
+
+        # Kontroll
+        self._pose_controller = PoseController(cfg.pid_gains)
+        self._imu_fusion = IMUFusion()
+
+        # Sikkerhet
+        self._safety_monitor = SafetyMonitor(cfg.safety_config, cfg.servo_configs)
+
+        # Gå til hjemmeposisjon
+        self._servo_array.go_home()
 
     def set_target_pose(self, pose: Pose) -> None:
         """Sett ønsket mål-pose for plattformen.
@@ -86,7 +120,10 @@ class MotionController:
         Raises:
             ValueError: Hvis posen er utenfor tillatte sikkerhetsgrenser.
         """
-        raise NotImplementedError
+        if self._safety_monitor is not None:
+            if not self._safety_monitor.validate_pose(pose):
+                raise ValueError("Mål-pose er utenfor tillatte sikkerhetsgrenser.")
+        self._target_pose = pose
 
     def start(self) -> None:
         """Start kontrollsløyfen i en egen tråd.
@@ -97,7 +134,9 @@ class MotionController:
         Raises:
             RuntimeError: Hvis kontrolleren ikke er initialisert.
         """
-        raise NotImplementedError
+        if self._servo_array is None:
+            raise RuntimeError("Kontrolleren er ikke initialisert. Kall initialize() først.")
+        self._running = True
 
     def stop(self) -> None:
         """Stopp kontrollsløyfen og behold servoer i nåværende posisjon.
@@ -105,7 +144,7 @@ class MotionController:
         Avslutter kontrolltråden på en trygg måte. Servoene
         beholder sin siste posisjon (ikke frikoblet).
         """
-        raise NotImplementedError
+        self._running = False
 
     def emergency_stop(self) -> None:
         """Nødstopp: stopp sløyfen og frikoble alle servoer umiddelbart.
@@ -114,7 +153,11 @@ class MotionController:
         Alle servoer frikoblet øyeblikkelig slik at plattformen
         kan bevege seg fritt.
         """
-        raise NotImplementedError
+        self._running = False
+        if self._safety_monitor is not None:
+            self._safety_monitor.trigger_emergency_stop()
+        if self._servo_array is not None:
+            self._servo_array.detach_all()
 
     def step(self) -> None:
         """Utfør en enkelt iterasjon av kontrollsløyfen.
@@ -130,7 +173,44 @@ class MotionController:
         5. Valider sikkerhet.
         6. Sett servovinkler.
         """
-        raise NotImplementedError
+        from ..geometry.vector3 import Vector3
+
+        dt = 1.0 / self._loop_rate_hz
+
+        # 1-2: Les IMU og oppdater fusjon
+        if self._top_imu is not None and self._imu_fusion is not None:
+            accel = self._top_imu.read_acceleration()
+            gyro = self._top_imu.read_gyroscope()
+            orientation = self._imu_fusion.update(accel, gyro, dt)
+            self._current_pose = Pose(rotation=orientation)
+        else:
+            accel = Vector3(0.0, 0.0, 9.81)
+
+        # 3: PID-korreksjon
+        if self._pose_controller is not None:
+            correction = self._pose_controller.update(
+                self._target_pose, self._current_pose, dt
+            )
+        else:
+            correction = self._target_pose
+
+        # 4: Invers kinematikk
+        if self._ik_solver is not None:
+            angles = self._ik_solver.solve(correction)
+        else:
+            return
+
+        # 5: Sikkerhetsvalidering
+        if self._safety_monitor is not None:
+            result = self._safety_monitor.check_all(
+                correction, angles, accel, dt
+            )
+            if not result.is_safe:
+                return
+
+        # 6: Sett servovinkler
+        if self._servo_array is not None:
+            self._servo_array.set_angles(angles)
 
     def get_current_pose(self) -> Pose:
         """Hent nåværende estimert pose for toppplaten.
@@ -165,4 +245,13 @@ class MotionController:
         Stopper kontrollsløyfen, frikoblet alle servoer og
         lukker I2C-forbindelsen. Bør kalles ved programavslutning.
         """
-        raise NotImplementedError
+        self._running = False
+        if self._servo_array is not None:
+            self._servo_array.detach_all()
+        self._servo_array = None
+        self._top_imu = None
+        self._base_imu = None
+        self._ik_solver = None
+        self._pose_controller = None
+        self._imu_fusion = None
+        self._safety_monitor = None
