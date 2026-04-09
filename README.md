@@ -22,7 +22,7 @@ Alle I2C-adresser kan endres i `config/default_config.yaml`.
 
 ## Arkitektur
 
-Objektorientert Python-design med 7 pakker:
+Objektorientert Python-design med 8 pakker:
 
 ```
 stewart_platform/
@@ -33,6 +33,7 @@ stewart_platform/
   kinematics/      Invers kinematikk (pose -> servovinkler)
   control/         PID-regulering, sensorfusjon, kontrollslyfe
   safety/          Sikkerhetsvalidering og nodstopp
+  gui/             Grafisk brukergrensesnitt (CustomTkinter + matplotlib)
 ```
 
 ### Kontrollslyfe
@@ -56,6 +57,16 @@ IMU-data -> IMUFusion -> PoseController (PID) -> InverseKinematics -> SafetyMoni
 - Raspberry Pi 4B (for maskinvarestyring)
 - Tilkoblede I2C-enheter (PCA9685, LSM6DSOXTR)
 
+### Avhengigheter
+
+| Pakke | Bruk |
+|-------|------|
+| `numpy` | Matematikk og lineaer algebra |
+| `pyyaml` | YAML-konfigurasjonsfiler |
+| `smbus2` | I2C-kommunikasjon (Raspberry Pi) |
+| `customtkinter` | Moderne GUI (mork tema, avrundede widgets) |
+| `matplotlib` | 3D-visualisering av plattformen |
+
 ### Oppsett
 
 ```bash
@@ -64,7 +75,7 @@ git clone <repo-url>
 cd Yggdrasil_GIT_Repo
 
 # Installer avhengigheter
-pip install numpy pyyaml smbus2
+pip install numpy pyyaml smbus2 customtkinter matplotlib
 
 # Installer som utviklingspakke (valgfritt)
 pip install -e .
@@ -190,6 +201,45 @@ controller.emergency_stop()
 controller.shutdown()
 ```
 
+## GUI
+
+Plattformen har et grafisk brukergrensesnitt bygget med CustomTkinter og matplotlib.
+
+### Start GUI
+
+```bash
+# Demo-modus (uten maskinvare — for utvikling og testing pa PC)
+python -m stewart_platform.gui
+```
+
+### Funksjoner
+
+- **Tilt-styring**: Interaktiv sirkel for roll/pitch-kontroll. To modi:
+  - *Live*: Klikk og dra for a styre plattformen i sanntid
+  - *Visning*: Skrivebeskyttet kryss som viser faktisk orientering
+- **3D-visning**: Live matplotlib-modell av plattformen (bunnplate, toppplate, 6 bein)
+- **IMU-panel**: Sammenligning av faktisk (ekstern IMU) og estimert (RPi-fusjon) orientering
+- **Sikkerhetsbar**: Permanent NODSTOPP-knapp og sikkerhetsstatus nederst i vinduet
+- **Servokontroll**: Popup for direkte servostyring (testing/kalibrering)
+- **Innstillinger**: Popup med PID-tuning, sikkerhetsgrenser, og konfigurasjon (YAML lagre/last)
+
+### Koble til maskinvare
+
+```python
+from stewart_platform.config import PlatformConfig
+from stewart_platform.control import MotionController
+from stewart_platform.geometry.platform_geometry import PlatformGeometry
+from stewart_platform.gui.app import StewartPlatformApp
+
+config = PlatformConfig.load("config/default_config.yaml")
+controller = MotionController(config)
+controller.initialize()
+geometry = PlatformGeometry(config)
+
+app = StewartPlatformApp(config=config, controller=controller, geometry=geometry)
+app.mainloop()
+```
+
 ## Testing
 
 ```bash
@@ -236,6 +286,24 @@ Yggdrasil_GIT_Repo/
       motion_controller.py       MotionController - hovedkontrollslyfe
     safety/
       safety_monitor.py          SafetyMonitor, SafetyCheckResult, SafetySeverity
+    gui/
+      __main__.py                Startpunkt: python -m stewart_platform.gui
+      app.py                     Hovedvindu (CTk), faner, mainloop
+      data_bridge.py             Tradsikker bro mellom GUI og kontrolltrad
+      theme.py                   Farger, fonter, storrelser
+      views/
+        tilt_control.py          Fane 1: Interaktiv tilt-sirkel
+        platform_3d.py           Fane 2: Matplotlib 3D-visning
+      components/
+        top_bar.py               Tilstand, start/stopp, menyknapper
+        safety_bar.py            NODSTOPP og sikkerhetsstatus
+        imu_panel.py             IMU-sammenligning (faktisk vs. estimert)
+      popups/
+        servo_menu.py            Direkte servostyring (testing)
+        settings_window.py       PID, sikkerhet, konfigurasjon
+      widgets/
+        tilt_circle.py           Canvas-basert tilt-sirkel
+        platform_renderer.py     Matplotlib 3D-tegning av plattformen
   tests/
     ...                          Pytest-tester (speiler pakkestruktur)
 ```
