@@ -212,6 +212,60 @@ class MotionController:
         if self._servo_array is not None:
             self._servo_array.set_angles(angles)
 
+    @property
+    def target_pose(self) -> Pose:
+        """Hent navaerende mal-pose.
+
+        Returns:
+            Mal-posen som kontrolleren styrer mot.
+        """
+        return self._target_pose
+
+    @property
+    def pose_controller(self) -> PoseController | None:
+        """Hent PoseController-instansen for PID-tuning via GUI.
+
+        Returns:
+            PoseController eller None hvis ikke initialisert.
+        """
+        return self._pose_controller
+
+    @property
+    def safety_monitor(self) -> SafetyMonitor | None:
+        """Hent SafetyMonitor-instansen for GUI-tilgang.
+
+        Returns:
+            SafetyMonitor eller None hvis ikke initialisert.
+        """
+        return self._safety_monitor
+
+    @property
+    def imu_fusion(self) -> IMUFusion | None:
+        """Hent IMUFusion-instansen for GUI-tilgang.
+
+        Returns:
+            IMUFusion eller None hvis ikke initialisert.
+        """
+        return self._imu_fusion
+
+    @property
+    def top_imu(self) -> IMUInterface | None:
+        """Hent toppplate-IMU for GUI-avlesning.
+
+        Returns:
+            IMUInterface eller None hvis ikke initialisert.
+        """
+        return self._top_imu
+
+    @property
+    def servo_array(self) -> ServoArray | None:
+        """Hent ServoArray-instansen for GUI-tilgang.
+
+        Returns:
+            ServoArray eller None hvis ikke initialisert.
+        """
+        return self._servo_array
+
     def get_current_pose(self) -> Pose:
         """Hent nåværende estimert pose for toppplaten.
 
