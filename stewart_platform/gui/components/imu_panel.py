@@ -1,7 +1,7 @@
 # imu_panel.py
 # ============
 # IMU-sammenligning — alltid synlig under fanene.
-# Viser faktisk orientering (ekstern IMU) vs. estimert (RPi-fusjon).
+# Viser bunnplatens orientering (IMU) vs. fusjonert estimat.
 
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ if TYPE_CHECKING:
 
 
 class IMUPanel(ctk.CTkFrame):
-    """IMU-panel som viser faktisk vs. estimert orientering.
+    """IMU-panel som viser bunnplatens orientering.
 
     Alltid synlig under fanene. To kolonner side-om-side:
-    - Venstre: Radata fra toppplate-IMU
-    - Hoyre: Estimert orientering fra IMU-fusjon
+    - Venstre: Radata fra bunnplate-IMU (LSM6DSOXTR)
+    - Hoyre: Fusjonert orientering fra IMUFusion
     """
 
     def __init__(self, parent: ctk.CTkFrame, data_bridge: GUIDataBridge) -> None:
@@ -30,12 +30,12 @@ class IMUPanel(ctk.CTkFrame):
 
         self._data_bridge = data_bridge
 
-        # --- Venstre: Faktisk (ekstern IMU) ---
+        # --- Venstre: Bunnplate-IMU ---
         self._left = ctk.CTkFrame(self, fg_color="transparent")
         self._left.pack(side="left", expand=True, fill="both", padx=(10, 5), pady=5)
 
         ctk.CTkLabel(
-            self._left, text="Faktisk (ekstern IMU)",
+            self._left, text="Bunnplate (IMU)",
             font=theme.FONT_SMALL, text_color=theme.TEXT_SECONDARY,
         ).pack(anchor="w")
 
@@ -67,12 +67,12 @@ class IMUPanel(ctk.CTkFrame):
         ctk.CTkFrame(self, width=2, fg_color=theme.TILT_CROSSHAIR).pack(
             side="left", fill="y", pady=10)
 
-        # --- Hoyre: Estimert (RPi-fusjon) ---
+        # --- Hoyre: Fusjonert orientering ---
         self._right = ctk.CTkFrame(self, fg_color="transparent")
         self._right.pack(side="left", expand=True, fill="both", padx=(5, 10), pady=5)
 
         ctk.CTkLabel(
-            self._right, text="Estimert (RPi-fusjon)",
+            self._right, text="Fusjonert orientering",
             font=theme.FONT_SMALL, text_color=theme.TEXT_SECONDARY,
         ).pack(anchor="w")
 
@@ -108,7 +108,7 @@ class IMUPanel(ctk.CTkFrame):
         gyro = state.imu_gyro
         orient = state.orientation
 
-        # Bruk fusjonert orientering som «faktisk» for toppplate
+        # Fusjonert orientering for bunnplaten
         self._actual_roll.configure(text=f"{orient.x:+.1f}\u00b0")
         self._actual_pitch.configure(text=f"{orient.y:+.1f}\u00b0")
         self._actual_yaw.configure(text=f"{orient.z:+.1f}\u00b0")

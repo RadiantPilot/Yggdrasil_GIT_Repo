@@ -203,14 +203,13 @@ class TestPlatformConfig:
         """Sjekk at I2C-standardadresser er korrekte.
 
         Standardadressene skal matche typisk maskinvareoppsett:
-        PCA9685=0x40, LSM6DSOX=0x6A, base-IMU=0x6B.
+        PCA9685=0x40, LSM6DSOX=0x6A.
         """
         config = PlatformConfig()
         assert config.i2c_bus_number == 1
         assert config.pca9685_address == 0x40
         assert config.pca9685_frequency == 50
-        assert config.lsm6dsox_top_address == 0x6A
-        assert config.base_imu_address == 0x6B
+        assert config.lsm6dsox_address == 0x6A
 
     def test_standardverdier_geometri(self):
         """Sjekk at geometristandardverdier er satt.
@@ -427,9 +426,7 @@ class TestPlatformConfig:
         """
         config = PlatformConfig(
             pca9685_address=0x41,
-            lsm6dsox_top_address=0x6B,
-            base_imu_address=0x6A,
+            lsm6dsox_address=0x6B,
         )
         assert config.pca9685_address == 0x41
-        assert config.lsm6dsox_top_address == 0x6B
-        assert config.base_imu_address == 0x6A
+        assert config.lsm6dsox_address == 0x6B

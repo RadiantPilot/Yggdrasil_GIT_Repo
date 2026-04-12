@@ -14,8 +14,8 @@ from ..geometry.vector3 import Vector3
 class IMUInterface(ABC):
     """Abstrakt baseklasse for IMU-sensorer.
 
-    Alle IMU-drivere (LSM6DSOXTR, bunnplate-IMU, osv.) må implementere
-    dette grensesnittet. Dette sikrer at MotionController og IMUFusion
+    Alle IMU-drivere (f.eks. LSM6DSOXTR) må implementere dette
+    grensesnittet. Dette sikrer at MotionController og IMUFusion
     kan bruke hvilken som helst IMU-type uten kodeendringer.
     """
 

@@ -62,7 +62,7 @@ class TestMotionControllerOpprettelse:
         Ingen maskinvare skal initialiseres i konstruktoren.
         """
         assert controller._servo_array is None
-        assert controller._top_imu is None
+        assert controller._base_imu is None
         assert controller._ik_solver is None
         assert controller._safety_monitor is None
 

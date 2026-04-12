@@ -27,13 +27,12 @@ class MotionController:
     Orkestrerer hele kontrollsystemet i en sløyfe som kjører
     med konfigurerbar frekvens (control_loop_rate_hz):
 
-    1. Les akselerometer- og gyroskopdata fra toppplate-IMU.
-    2. (Valgfritt) Les bunnplate-IMU for basekompensasjon.
-    3. Estimer nåværende orientering via IMUFusion.
-    4. Beregn korreksjon via PoseController (PID).
-    5. Løs invers kinematikk for å finne servovinkler.
-    6. Valider sikkerhet via SafetyMonitor.
-    7. Send servovinkler til ServoArray via PCA9685.
+    1. Les akselerometer- og gyroskopdata fra bunnplate-IMU (LSM6DSOXTR).
+    2. Estimer bunnplatens orientering via IMUFusion.
+    3. Beregn kompensasjon via PoseController (PID) som motvirker bunnplatens tilt.
+    4. Løs invers kinematikk for å finne servovinkler.
+    5. Valider sikkerhet via SafetyMonitor.
+    6. Send servovinkler til ServoArray via PCA9685.
 
     Kontrolleren kjører i en egen tråd og kan startes/stoppes
     trygt. Nødstopp frikobler alle servoer umiddelbart.
@@ -50,7 +49,6 @@ class MotionController:
         """
         self._config = config
         self._servo_array: ServoArray | None = None
-        self._top_imu: IMUInterface | None = None
         self._base_imu: IMUInterface | None = None
         self._ik_solver: InverseKinematics | None = None
         self._pose_controller: PoseController | None = None
@@ -76,7 +74,6 @@ class MotionController:
         from ..hardware.i2c_bus import I2CBus
         from ..hardware.pca9685_driver import PCA9685Driver
         from ..hardware.lsm6dsox_driver import LSM6DSOXDriver
-        from ..hardware.base_imu_driver import BaseIMUDriver
         from ..kinematics.inverse_kinematics import InverseKinematics
         from ..safety.safety_monitor import SafetyMonitor
         from ..servo.servo_array import ServoArray
@@ -90,9 +87,8 @@ class MotionController:
         driver = PCA9685Driver(bus, cfg.pca9685_address, cfg.pca9685_frequency)
         self._servo_array = ServoArray(cfg.servo_configs, driver)
 
-        # IMU-sensorer
-        self._top_imu = LSM6DSOXDriver(bus, cfg.lsm6dsox_top_address)
-        self._base_imu = BaseIMUDriver(bus, cfg.base_imu_address)
+        # IMU-sensor (bunnplate)
+        self._base_imu = LSM6DSOXDriver(bus, cfg.lsm6dsox_address)
 
         # Geometri og kinematikk
         geometry = PlatformGeometry(cfg)
@@ -177,12 +173,12 @@ class MotionController:
 
         dt = 1.0 / self._loop_rate_hz
 
-        # 1-2: Les IMU og oppdater fusjon
-        if self._top_imu is not None and self._imu_fusion is not None:
-            accel = self._top_imu.read_acceleration()
-            gyro = self._top_imu.read_gyroscope()
-            orientation = self._imu_fusion.update(accel, gyro, dt)
-            self._current_pose = Pose(rotation=orientation)
+        # 1-2: Les bunnplate-IMU og oppdater fusjon
+        if self._base_imu is not None and self._imu_fusion is not None:
+            accel = self._base_imu.read_acceleration()
+            gyro = self._base_imu.read_gyroscope()
+            base_orientation = self._imu_fusion.update(accel, gyro, dt)
+            self._current_pose = Pose(rotation=base_orientation)
         else:
             accel = Vector3(0.0, 0.0, 9.81)
 
@@ -249,13 +245,13 @@ class MotionController:
         return self._imu_fusion
 
     @property
-    def top_imu(self) -> IMUInterface | None:
-        """Hent toppplate-IMU for GUI-avlesning.
+    def base_imu(self) -> IMUInterface | None:
+        """Hent bunnplate-IMU (LSM6DSOXTR) for GUI-avlesning.
 
         Returns:
             IMUInterface eller None hvis ikke initialisert.
         """
-        return self._top_imu
+        return self._base_imu
 
     @property
     def servo_array(self) -> ServoArray | None:
@@ -267,10 +263,10 @@ class MotionController:
         return self._servo_array
 
     def get_current_pose(self) -> Pose:
-        """Hent nåværende estimert pose for toppplaten.
+        """Hent estimert orientering for bunnplaten.
 
         Returns:
-            Estimert 6-DOF pose basert på IMU-fusjon.
+            Estimert 6-DOF pose basert på bunnplate-IMU-fusjon.
         """
         return self._current_pose
 
@@ -303,7 +299,6 @@ class MotionController:
         if self._servo_array is not None:
             self._servo_array.detach_all()
         self._servo_array = None
-        self._top_imu = None
         self._base_imu = None
         self._ik_solver = None
         self._pose_controller = None

@@ -61,8 +61,7 @@ package "config" #E8F5E9 {
         .. I2C-adresser ..
         + i2c_bus_number : int = 1
         + pca9685_address : int = 0x40
-        + lsm6dsox_top_address : int = 0x6A
-        + base_imu_address : int = 0x6B
+        + lsm6dsox_address : int = 0x6A
         .. Geometri ..
         + base_radius / platform_radius : float
         + base_joint_angles : list[float]
@@ -191,14 +190,6 @@ package "hardware" #E3F2FD {
         .. implementerer IMUInterface ..
     }
 
-    class BaseIMUDriver {
-        - _bus : I2CBus
-        - _address : int
-        --
-        + configure(**kwargs) : None
-        .. implementerer IMUInterface ..
-    }
-
     enum AccelRange {
         G2 .. G16
     }
@@ -213,12 +204,10 @@ package "hardware" #E3F2FD {
 
     ' Interne relasjoner – IMU-hierarki
     IMUInterface <|.. LSM6DSOXDriver
-    IMUInterface <|.. BaseIMUDriver
 
     ' Felles I2C-buss
     PCA9685Driver -u-> I2CBus
     LSM6DSOXDriver -u-> I2CBus
-    BaseIMUDriver -u-> I2CBus
 
     ' Enum-konfigurasjon (kun LSM6DSOX)
     LSM6DSOXDriver .r.> AccelRange
@@ -358,7 +347,6 @@ package "control" #E0F7FA {
     class MotionController {
         - _config : PlatformConfig
         - _servo_array : ServoArray
-        - _top_imu : IMUInterface
         - _base_imu : IMUInterface
         - _ik_solver : InverseKinematics
         - _pose_controller : PoseController

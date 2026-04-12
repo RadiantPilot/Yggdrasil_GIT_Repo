@@ -1,6 +1,6 @@
 # Yggdrasil - Stewart Platform
 
-6-DOF Stewart-plattform styrt av Raspberry Pi 4B med 6 servomotorer, to IMU-sensorer og YAML-basert konfigurasjon.
+6-DOF Stewart-plattform styrt av Raspberry Pi 4B med 6 servomotorer, en IMU-sensor og YAML-basert konfigurasjon.
 
 ## Oversikt
 
@@ -14,8 +14,7 @@ Plattformen er under aktiv utvikling og designet for enkel tuning og eksperiment
 |-----------|------|-----------|------------------|
 | Kontroller | Raspberry Pi 4B | — | — |
 | PWM-driver | PCA9685 (16-kanals) | I2C | 0x40 |
-| IMU toppplate | LSM6DSOXTR | I2C | 0x6A |
-| IMU bunnplate | Konfigurerbar | I2C | 0x6B |
+| IMU bunnplate | LSM6DSOXTR | I2C | 0x6A |
 | Servomotorer | 6 stk | PWM via PCA9685 | Kanal 0-5 |
 
 Alle I2C-adresser kan endres i `config/default_config.yaml`.
@@ -42,7 +41,7 @@ stewart_platform/
 IMU-data -> IMUFusion -> PoseController (PID) -> InverseKinematics -> SafetyMonitor -> ServoArray
 ```
 
-1. Les akselerometer og gyroskop fra toppplate-IMU
+1. Les akselerometer og gyroskop fra bunnplate-IMU
 2. Estimer orientering via komplementaerfilter (IMUFusion)
 3. Beregn korreksjon med PID-regulator (PoseController)
 4. Los invers kinematikk for 6 servovinkler (InverseKinematics)
@@ -116,8 +115,7 @@ config.save("config/my_config.yaml")
 **I2C-adresser:**
 ```yaml
 pca9685_address: 0x40
-lsm6dsox_top_address: 0x6A
-base_imu_address: 0x6B
+lsm6dsox_address: 0x6A
 ```
 
 **Plattformgeometri** (mm og grader):
@@ -268,8 +266,7 @@ Yggdrasil_GIT_Repo/
       i2c_bus.py                 I2CBus - wrapper rundt smbus2
       pca9685_driver.py          PCA9685Driver - 16-kanals PWM
       imu_interface.py           IMUInterface - abstrakt IMU-grensesnitt
-      lsm6dsox_driver.py         LSM6DSOXDriver - toppplate-IMU
-      base_imu_driver.py         BaseIMUDriver - bunnplate-IMU
+      lsm6dsox_driver.py         LSM6DSOXDriver - bunnplate-IMU
     geometry/
       vector3.py                 Vector3 - 3D-vektor
       pose.py                    Pose - 6-DOF posisjon + orientering

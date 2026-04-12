@@ -129,11 +129,8 @@ class PlatformConfig:
     # PWM-frekvens for PCA9685 i Hz (50 Hz er standard for servoer).
     pca9685_frequency: int = 50
 
-    # I2C-adresse for LSM6DSOXTR IMU på toppplaten.
-    lsm6dsox_top_address: int = 0x6A
-
-    # I2C-adresse for IMU på bunnplaten.
-    base_imu_address: int = 0x6B
+    # I2C-adresse for LSM6DSOXTR IMU på bunnplaten.
+    lsm6dsox_address: int = 0x6A
 
     # --- Plattformgeometri ---
 

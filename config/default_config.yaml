@@ -12,8 +12,7 @@
 i2c_bus_number: 1
 pca9685_address: 0x40          # PCA9685 PWM-driver (standard: 0x40)
 pca9685_frequency: 50          # Hz - standard for servoer (20 ms periode)
-lsm6dsox_top_address: 0x6A    # LSM6DSOXTR IMU på toppplaten
-base_imu_address: 0x6B         # IMU på bunnplaten
+lsm6dsox_address: 0x6A         # LSM6DSOXTR IMU på bunnplaten
 
 # --- Plattformgeometri ---
 # Alle lengder i millimeter, alle vinkler i grader.

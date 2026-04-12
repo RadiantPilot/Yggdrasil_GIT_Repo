@@ -75,10 +75,10 @@ class GUIDataBridge:
                     ctrl.safety_monitor.is_emergency_stopped()
                 )
 
-            if ctrl.top_imu is not None:
+            if ctrl.base_imu is not None:
                 try:
-                    self._state.imu_accel = ctrl.top_imu.read_acceleration()
-                    self._state.imu_gyro = ctrl.top_imu.read_gyroscope()
+                    self._state.imu_accel = ctrl.base_imu.read_acceleration()
+                    self._state.imu_gyro = ctrl.base_imu.read_gyroscope()
                 except Exception:
                     pass
 
