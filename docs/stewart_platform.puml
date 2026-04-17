@@ -201,7 +201,7 @@ package "geometry" #FFF3E0 {
         + to_matrix() : np.ndarray
         + {static} from_matrix(m: np.ndarray) : Pose
         + interpolate(other: Pose, t: float) : Pose
-        + is_within_bounds(max_trans: float, max_rot: float) : bool
+        + is_within_bounds(max_translation: float, max_rotation: float) : bool
         + {static} home() : Pose
     }
 
@@ -217,6 +217,7 @@ package "geometry" #FFF3E0 {
         - _platform_joints_local : list[Vector3]
         --
         + __init__(config: PlatformConfig)
+        - {static} _compute_circle_joints(radius: float, angles_deg: list[float]) : list[Vector3]
         + get_base_joints() : list[Vector3]
         + get_platform_joints_local() : list[Vector3]
         + get_platform_joints_world(pose: Pose) : list[Vector3]
@@ -350,6 +351,12 @@ package "control" #E0F7FA {
         + get_servo_angles() : list[float]
         + is_running() : bool
         + shutdown() : None
+        + «property» target_pose : Pose
+        + «property» pose_controller : PoseController
+        + «property» safety_monitor : SafetyMonitor
+        + «property» imu_fusion : IMUFusion
+        + «property» base_imu : IMUInterface
+        + «property» servo_array : ServoArray
     }
 
     PoseController "1" *-- "6" PIDController : one per DOF
