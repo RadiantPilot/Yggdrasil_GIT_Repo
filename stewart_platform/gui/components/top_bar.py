@@ -117,7 +117,7 @@ class TopBar(ctk.CTkFrame):
         """Oppdater statusvisning fra data bridge."""
         state = self._data_bridge.get_state()
 
-        if state.is_emergency_stopped:
+        if state.is_e_stopped:
             self._status_label.configure(
                 text=" NODSTOPP ",
                 text_color=theme.COLOR_ERROR,

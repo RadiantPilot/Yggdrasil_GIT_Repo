@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from ..config.platform_config import SafetyConfig, ServoConfig
 from ..geometry.pose import Pose
@@ -78,6 +79,8 @@ class SafetyMonitor:
         self._last_pose = Pose.home()
         self._last_time = 0.0
         self._emergency_stopped = False
+        self._e_stop_reason: Optional[str] = None
+        self._check_history: deque[SafetyCheckResult] = deque(maxlen=100)
 
     def validate_pose(self, pose: Pose) -> bool:
         """Sjekk om en pose er innenfor tillatte grenser.
@@ -166,29 +169,67 @@ class SafetyMonitor:
         threshold_ms2 = self._config.imu_fault_threshold_g * 9.81
         return accel.magnitude() <= threshold_ms2
 
-    def trigger_emergency_stop(self) -> None:
-        """Utløs nødstopp.
+    def trigger_e_stop(self, reason: str = "") -> None:
+        """Utløs nødstopp med valgfri årsak.
 
-        Setter nødstopp-flagget. MotionController sjekker dette
-        flagget og frikobler alle servoer umiddelbart.
+        Args:
+            reason: Beskrivelse av hvorfor nødstoppen ble utløst.
         """
         self._emergency_stopped = True
+        self._e_stop_reason = reason if reason else None
 
-    def reset_emergency_stop(self) -> None:
-        """Tilbakestill nødstopp-flagget.
+    @property
+    def e_stop_reason(self) -> Optional[str]:
+        """Hent årsaken til nødstoppen.
 
-        Tillater systemet å gjenoppta normal drift etter at
-        årsaken til nødstoppen er utbedret.
+        Returns:
+            Årsak-streng eller None hvis ingen årsak er satt.
         """
-        self._emergency_stopped = False
+        return self._e_stop_reason
 
-    def is_emergency_stopped(self) -> bool:
+    def reset_latched_faults(self) -> bool:
+        """Tilbakestill nødstopp og alle latchede feil.
+
+        Returns:
+            True hvis det var noe å tilbakestille, False ellers.
+        """
+        if not self._emergency_stopped:
+            return False
+        self._emergency_stopped = False
+        self._e_stop_reason = None
+        return True
+
+    def is_e_stopped(self) -> bool:
         """Sjekk om nødstopp er aktiv.
 
         Returns:
             True hvis nødstopp er utløst.
         """
         return self._emergency_stopped
+
+    def get_limits(self) -> SafetyConfig:
+        """Hent nåværende sikkerhetsgrenser.
+
+        Returns:
+            SafetyConfig med aktive grenser.
+        """
+        return self._config
+
+    def set_limits(self, config: SafetyConfig) -> None:
+        """Oppdater sikkerhetsgrensene.
+
+        Args:
+            config: Nye sikkerhetsgrenser.
+        """
+        self._config = config
+
+    def get_check_results(self) -> List[SafetyCheckResult]:
+        """Hent historikk over sikkerhetssjekker (siste 100).
+
+        Returns:
+            Liste med SafetyCheckResult i kronologisk rekkefølge.
+        """
+        return list(self._check_history)
 
     def check_all(
         self,
@@ -230,7 +271,9 @@ class SafetyMonitor:
         self._last_pose = pose
 
         if not violations:
-            return SafetyCheckResult(is_safe=True)
+            result = SafetyCheckResult(is_safe=True)
+            self._check_history.append(result)
+            return result
 
         # Bestem alvorlighetsgrad basert på antall brudd
         if len(violations) >= 3:
@@ -241,10 +284,12 @@ class SafetyMonitor:
             severity = SafetySeverity.ERROR
 
         if severity == SafetySeverity.CRITICAL:
-            self.trigger_emergency_stop()
+            self.trigger_e_stop("Kritisk sikkerhetsbrudd")
 
-        return SafetyCheckResult(
+        result = SafetyCheckResult(
             is_safe=False,
             violations=violations,
             severity=severity,
         )
+        self._check_history.append(result)
+        return result

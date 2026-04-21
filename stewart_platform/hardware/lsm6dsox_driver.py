@@ -105,7 +105,7 @@ class LSM6DSOXDriver(IMUInterface):
         """
         raise NotImplementedError
 
-    def read_gyroscope(self) -> Vector3:
+    def read_angular_velocity(self) -> Vector3:
         """Les gyroskopdata fra sensorens OUTX/Y/Z_L/H_G registre.
 
         Leser 6 bytes (2 per akse) og konverterer til grader/s
@@ -139,5 +139,22 @@ class LSM6DSOXDriver(IMUInterface):
 
         Setter alle registre tilbake til standardverdier.
         Vent minst 10 ms etter tilbakestilling før ny konfigurasjon.
+        """
+        raise NotImplementedError
+
+    def calibrate_gyro_bias(self) -> None:
+        """Kalibrer gyroskopets nullpunktsfeil (bias).
+
+        Leser samples mens sensoren er i ro og beregner
+        gjennomsnittlig offset. Implementasjon krever
+        tilgang til maskinvare.
+        """
+        raise NotImplementedError
+
+    def calibrate_accelerometer_offset(self) -> None:
+        """Kalibrer akselerometerets offset.
+
+        Leser samples mens sensoren er vannrett og i ro.
+        Implementasjon krever tilgang til maskinvare.
         """
         raise NotImplementedError

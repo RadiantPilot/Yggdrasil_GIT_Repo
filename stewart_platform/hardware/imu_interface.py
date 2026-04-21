@@ -42,7 +42,7 @@ class IMUInterface(ABC):
         ...
 
     @abstractmethod
-    def read_gyroscope(self) -> Vector3:
+    def read_angular_velocity(self) -> Vector3:
         """Les gyroskopdata fra sensoren.
 
         Returns:
@@ -75,5 +75,25 @@ class IMUInterface(ABC):
         """Tilbakestill sensoren til fabrikkinnstillinger.
 
         Nyttig ved oppstart eller etter en feilsituasjon.
+        """
+        ...
+
+    @abstractmethod
+    def calibrate_gyro_bias(self) -> None:
+        """Kalibrer gyroskopets nullpunktsfeil (bias).
+
+        Leser et antall samples mens sensoren er i ro og
+        beregner gjennomsnittlig offset for hver akse.
+        Etterfølgende avlesninger kompenseres automatisk.
+        """
+        ...
+
+    @abstractmethod
+    def calibrate_accelerometer_offset(self) -> None:
+        """Kalibrer akselerometerets offset.
+
+        Leser et antall samples mens sensoren er i ro og
+        vannrett, og beregner offset slik at Z-aksen viser
+        nøyaktig 1g og X/Y viser 0.
         """
         ...

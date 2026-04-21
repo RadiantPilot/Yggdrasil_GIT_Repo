@@ -244,3 +244,56 @@ class TestServoArrayBevegelse:
         """
         array = ServoArray(six_servo_configs, mock_pca9685)
         assert array.validate_angles([90.0] * 4) is False
+
+
+class TestServoArrayConfig:
+    """Tester for servo-konfigurasjon getter/setter."""
+
+    def test_get_servo_configs_returnerer_seks(self, mock_pca9685, six_servo_configs):
+        """Sjekk at get_servo_configs returnerer 6 konfigurasjoner."""
+        array = ServoArray(six_servo_configs, mock_pca9685)
+        configs = array.get_servo_configs()
+        assert len(configs) == 6
+
+    def test_get_servo_configs_returnerer_servoconfig(self, mock_pca9685, six_servo_configs):
+        """Sjekk at returnerte elementer er ServoConfig-instanser."""
+        array = ServoArray(six_servo_configs, mock_pca9685)
+        configs = array.get_servo_configs()
+        for cfg in configs:
+            assert isinstance(cfg, ServoConfig)
+
+    def test_get_servo_configs_matcher_original(self, mock_pca9685, six_servo_configs):
+        """Sjekk at returnerte configs matcher de opprinnelige."""
+        array = ServoArray(six_servo_configs, mock_pca9685)
+        configs = array.get_servo_configs()
+        for i, cfg in enumerate(configs):
+            assert cfg.channel == six_servo_configs[i].channel
+            assert cfg.mounting_angle_deg == six_servo_configs[i].mounting_angle_deg
+
+    def test_set_servo_config_gyldig(self, mock_pca9685, six_servo_configs):
+        """Sjekk at set_servo_config oppdaterer en enkelt servo."""
+        array = ServoArray(six_servo_configs, mock_pca9685)
+        ny_config = ServoConfig(channel=0, home_angle_deg=45.0, offset_deg=2.0)
+        result = array.set_servo_config(0, ny_config)
+        assert result is True
+        configs = array.get_servo_configs()
+        assert configs[0].home_angle_deg == 45.0
+        assert configs[0].offset_deg == 2.0
+
+    def test_set_servo_config_ugyldig_indeks(self, mock_pca9685, six_servo_configs):
+        """Sjekk at ugyldig indeks returnerer False."""
+        array = ServoArray(six_servo_configs, mock_pca9685)
+        ny_config = ServoConfig(channel=0)
+        assert array.set_servo_config(6, ny_config) is False
+        assert array.set_servo_config(-1, ny_config) is False
+
+    def test_set_servo_config_endrer_bare_valgt(self, mock_pca9685, six_servo_configs):
+        """Sjekk at bare den valgte servoen endres."""
+        array = ServoArray(six_servo_configs, mock_pca9685)
+        ny_config = ServoConfig(channel=2, offset_deg=5.0)
+        array.set_servo_config(2, ny_config)
+        configs = array.get_servo_configs()
+        assert configs[2].offset_deg == 5.0
+        # Andre servoer er uendret
+        assert configs[0].offset_deg == 0.0
+        assert configs[1].offset_deg == 0.0

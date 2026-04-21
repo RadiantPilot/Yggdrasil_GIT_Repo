@@ -29,7 +29,7 @@ class GUIState:
     target_pose: Pose = field(default_factory=Pose.home)
     servo_angles: List[float] = field(default_factory=lambda: [90.0] * 6)
     is_running: bool = False
-    is_emergency_stopped: bool = False
+    is_e_stopped: bool = False
     safety_result: SafetyCheckResult = field(default_factory=SafetyCheckResult)
     imu_accel: Vector3 = field(default_factory=Vector3)
     imu_gyro: Vector3 = field(default_factory=Vector3)
@@ -71,14 +71,14 @@ class GUIDataBridge:
             self._state.is_running = ctrl.is_running()
 
             if ctrl.safety_monitor is not None:
-                self._state.is_emergency_stopped = (
-                    ctrl.safety_monitor.is_emergency_stopped()
+                self._state.is_e_stopped = (
+                    ctrl.safety_monitor.is_e_stopped()
                 )
 
             if ctrl.base_imu is not None:
                 try:
                     self._state.imu_accel = ctrl.base_imu.read_acceleration()
-                    self._state.imu_gyro = ctrl.base_imu.read_gyroscope()
+                    self._state.imu_gyro = ctrl.base_imu.read_angular_velocity()
                 except Exception:
                     pass
 
@@ -97,7 +97,7 @@ class GUIDataBridge:
                 target_pose=self._state.target_pose,
                 servo_angles=list(self._state.servo_angles),
                 is_running=self._state.is_running,
-                is_emergency_stopped=self._state.is_emergency_stopped,
+                is_e_stopped=self._state.is_e_stopped,
                 safety_result=self._state.safety_result,
                 imu_accel=self._state.imu_accel,
                 imu_gyro=self._state.imu_gyro,
@@ -137,11 +137,11 @@ class GUIDataBridge:
         if self._controller is not None:
             self._controller.emergency_stop()
 
-    def reset_emergency_stop(self) -> None:
-        """Tilbakestill nodstopp."""
+    def reset_latched_faults(self) -> None:
+        """Tilbakestill nodstopp og latchede feil."""
         ctrl = self._controller
         if ctrl is not None and ctrl.safety_monitor is not None:
-            ctrl.safety_monitor.reset_emergency_stop()
+            ctrl.safety_monitor.reset_latched_faults()
 
     @property
     def is_connected(self) -> bool:

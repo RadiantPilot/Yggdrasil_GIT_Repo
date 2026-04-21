@@ -18,6 +18,15 @@ skinparam ranksep 50
 ' ============================================================
 package "config" #E8F5E9 {
 
+    enum Axis {
+        X = 0
+        Y = 1
+        Z = 2
+        ROLL = 3
+        PITCH = 4
+        YAW = 5
+    }
+
     class PlatformConfig <<dataclass>> {
         + i2c_bus_number : int = 1
         + pca9685_address : int = 0x40
@@ -37,7 +46,8 @@ package "config" #E8F5E9 {
         --
         + {static} load(filepath: str) : PlatformConfig
         + save(filepath: str) : None
-        + validate() : None
+        + validate() : list[str]
+        + raise_if_invalid() : None
     }
 
     class ServoConfig <<dataclass>> {
@@ -115,10 +125,12 @@ package "hardware" #E3F2FD {
     interface IMUInterface <<abstract>> {
         + {abstract} configure(**kwargs) : None
         + {abstract} read_acceleration() : Vector3
-        + {abstract} read_gyroscope() : Vector3
+        + {abstract} read_angular_velocity() : Vector3
         + {abstract} read_temperature() : float
         + {abstract} who_am_i() : int
         + {abstract} reset() : None
+        + {abstract} calibrate_gyro_bias() : None
+        + {abstract} calibrate_accelerometer_offset() : None
     }
 
     class LSM6DSOXDriver {
@@ -129,12 +141,14 @@ package "hardware" #E3F2FD {
         - _data_rate : DataRate
         --
         + __init__(bus: I2CBus, address: int)
-        + configure(accel_range: AccelRange, gyro_range: GyroRange, data_rate: DataRate) : None
+        + configure(accel_range, gyro_range, data_rate) : None
         + read_acceleration() : Vector3
-        + read_gyroscope() : Vector3
+        + read_angular_velocity() : Vector3
         + read_temperature() : float
         + who_am_i() : int
         + reset() : None
+        + calibrate_gyro_bias() : None
+        + calibrate_accelerometer_offset() : None
     }
 
     enum AccelRange {
@@ -259,6 +273,8 @@ package "servo" #F3E5F5 {
         + __init__(configs: list[ServoConfig], driver: PCA9685Driver)
         + set_angles(angles: list[float]) : None
         + get_angles() : list[float]
+        + get_servo_configs() : list[ServoConfig]
+        + set_servo_config(idx: int, cfg: ServoConfig) : bool
         + go_home() : None
         + detach_all() : None
         + validate_angles(angles: list[float]) : bool
@@ -291,7 +307,7 @@ package "kinematics" #FFFDE7 {
 ' ============================================================
 ' Package: control
 ' Motion control: PID controllers, IMU sensor fusion,
-' and the main control loop orchestrator.
+' step response recording, and the main control loop.
 ' ============================================================
 package "control" #E0F7FA {
 
@@ -307,13 +323,33 @@ package "control" #E0F7FA {
         + set_gains(gains: PIDGains) : None
     }
 
+    class StepResponseRecorder {
+        + axis : Axis
+        + from_val : float
+        + to_val : float
+        + is_active : bool
+        + samples : list[tuple]
+        --
+        + __init__(axis: Axis, from_val: float, to_val: float)
+        + record(timestamp: float, setpoint: float, actual: float) : None
+        + finish() : None
+    }
+
     class PoseController {
         - _controllers : list[PIDController]
+        - _step_recorders : dict[Axis, StepResponseRecorder]
+        - _response_listeners : list[Callable]
         --
         + __init__(gains: PIDGains)
         + update(target: Pose, current: Pose, dt: float) : Pose
         + reset() : None
+        + get_pid_gains(axis: Axis) : PIDGains
+        + set_pid_gains(axis: Axis, gains: PIDGains) : None
         + set_gains(gains: PIDGains) : None
+        + trigger_step_response(axis: Axis, from_val: float, to_val: float) : None
+        + get_step_response_recorder(axis: Axis) : StepResponseRecorder
+        + add_response_listener(callback: Callable) : None
+        + remove_response_listener(callback: Callable) : None
     }
 
     class IMUFusion {
@@ -342,7 +378,8 @@ package "control" #E0F7FA {
         --
         + __init__(config: PlatformConfig)
         + initialize() : None
-        + set_target_pose(pose: Pose) : None
+        + set_target_pose(pose: Pose) : bool
+        + home() : None
         + start() : None
         + stop() : None
         + emergency_stop() : None
@@ -351,15 +388,17 @@ package "control" #E0F7FA {
         + get_servo_angles() : list[float]
         + is_running() : bool
         + shutdown() : None
-        + «property» target_pose : Pose
-        + «property» pose_controller : PoseController
-        + «property» safety_monitor : SafetyMonitor
-        + «property» imu_fusion : IMUFusion
-        + «property» base_imu : IMUInterface
-        + «property» servo_array : ServoArray
+        + <<property>> target_pose : Pose
+        + <<property>> pose_controller : PoseController
+        + <<property>> safety_monitor : SafetyMonitor
+        + <<property>> imu_fusion : IMUFusion
+        + <<property>> base_imu : IMUInterface
+        + <<property>> servo_array : ServoArray
     }
 
     PoseController "1" *-- "6" PIDController : one per DOF
+    PoseController "1" o-- "*" StepResponseRecorder : records
+    PoseController --> Axis : uses
     IMUFusion --> Vector3 : orientation
 }
 
@@ -376,16 +415,22 @@ package "safety" #FFEBEE {
         - _last_pose : Pose
         - _last_time : float
         - _emergency_stopped : bool
+        - _e_stop_reason : str
+        - _check_history : deque[SafetyCheckResult]
         --
         + __init__(config: SafetyConfig, servo_configs: list[ServoConfig])
         + validate_pose(pose: Pose) : bool
         + validate_servo_angles(angles: list[float]) : bool
         + validate_velocity(current: Pose, previous: Pose, dt: float) : bool
         + validate_imu_readings(accel: Vector3) : bool
-        + trigger_emergency_stop() : None
-        + reset_emergency_stop() : None
-        + is_emergency_stopped() : bool
-        + check_all(pose: Pose, angles: list[float], accel: Vector3, dt: float) : SafetyCheckResult
+        + trigger_e_stop(reason: str = "") : None
+        + reset_latched_faults() : bool
+        + is_e_stopped() : bool
+        + <<property>> e_stop_reason : str
+        + get_limits() : SafetyConfig
+        + set_limits(config: SafetyConfig) : None
+        + get_check_results() : list[SafetyCheckResult]
+        + check_all(pose, angles, accel, dt) : SafetyCheckResult
     }
 
     class SafetyCheckResult <<dataclass>> {

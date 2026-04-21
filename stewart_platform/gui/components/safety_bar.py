@@ -100,13 +100,13 @@ class SafetyBar(ctk.CTkFrame):
 
     def _on_reset(self) -> None:
         """Tilbakestill nodstopp."""
-        self._data_bridge.reset_emergency_stop()
+        self._data_bridge.reset_latched_faults()
 
     def update_from_state(self) -> None:
         """Oppdater sikkerhetsstatus fra data bridge."""
         state = self._data_bridge.get_state()
 
-        if state.is_emergency_stopped:
+        if state.is_e_stopped:
             self._status_dot.configure(text_color=theme.COLOR_ERROR)
             self._status_text.configure(
                 text="NODSTOPP", text_color=theme.COLOR_ERROR)
