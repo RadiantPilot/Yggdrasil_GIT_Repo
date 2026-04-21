@@ -134,3 +134,23 @@ class PoseSliders(QWidget):
             self._spinboxes[i].setValue(default)
         self._updating = False
         self._emit_pose()
+
+    def set_target_values(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        roll: float,
+        pitch: float,
+        yaw: float,
+    ) -> None:
+        """Sett mål-sliders fra utenforstående kilde uten å emittere pose_changed.
+
+        Brukes når mål-posen endres utenfra (f.eks. Home-kommando) slik at
+        GUI-et viser samme målverdi uten å trigge en rundtur gjennom bridge.
+        """
+        self._updating = True
+        for i, v in enumerate([x, y, z, roll, pitch, yaw]):
+            self._spinboxes[i].setValue(v)
+            self._sliders[i].setValue(int(v * 100))
+        self._updating = False

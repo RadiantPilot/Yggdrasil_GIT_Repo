@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
@@ -78,13 +79,66 @@ class PidTuningTab(QWidget):
         # Feilgraf — alle 6 akser i sanntid
         err_box = QGroupBox("PID-feil (sanntid)")
         eg = QVBoxLayout(err_box)
+
+        series = ["X", "Y", "Z", "Roll", "Pitch", "Yaw"]
         self._error_plot = RealtimePlot(
-            series_names=["X", "Y", "Z", "Roll", "Pitch", "Yaw"],
+            series_names=series,
             window_size=200,
             y_label="Feil",
+            lock_y=True,
         )
-        self._error_plot.setMinimumHeight(200)
+        self._error_plot.setMinimumHeight(220)
         eg.addWidget(self._error_plot)
+
+        # Kontrollrad: aksevalg + tidsvindu
+        ctrl = QHBoxLayout()
+        ctrl.setSpacing(6)
+        ctrl.addWidget(QLabel("Vis:"))
+
+        self._axis_checks: list[QCheckBox] = []
+        for i, name in enumerate(series):
+            cb = QCheckBox(name)
+            cb.setChecked(True)
+            cb.toggled.connect(
+                lambda checked, idx=i: self._error_plot.set_series_visible(idx, checked)
+            )
+            ctrl.addWidget(cb)
+            self._axis_checks.append(cb)
+
+        ctrl.addSpacing(12)
+        btn_all = QPushButton("Alle")
+        btn_all.setFixedWidth(48)
+        btn_all.clicked.connect(lambda: self._set_all_axes(True))
+        ctrl.addWidget(btn_all)
+        btn_none = QPushButton("Ingen")
+        btn_none.setFixedWidth(52)
+        btn_none.clicked.connect(lambda: self._set_all_axes(False))
+        ctrl.addWidget(btn_none)
+
+        ctrl.addStretch()
+        ctrl.addWidget(QLabel("Tidsvindu:"))
+        self._window_combo = QComboBox()
+        for label, samples in [
+            ("5 s", 100),
+            ("10 s", 200),
+            ("20 s", 400),
+            ("60 s", 1200),
+        ]:
+            self._window_combo.addItem(label, samples)
+        self._window_combo.setCurrentIndex(1)  # 10 s som standard
+        self._window_combo.currentIndexChanged.connect(self._on_window_changed)
+        ctrl.addWidget(self._window_combo)
+
+        eg.addLayout(ctrl)
+
+        hint = QLabel(
+            "Rull med musehjulet over grafen for å zoome langs tidsaksen. "
+            "Y-aksen auto-skaleres til valgte serier."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 10px; color: #888;")
+        eg.addWidget(hint)
+
         right.addWidget(err_box, 1)
 
         # Step-respons kontroller
@@ -139,6 +193,18 @@ class PidTuningTab(QWidget):
     def _on_gains_changed(self, axis: Axis, gains: PIDGains) -> None:
         """Bruker endret PID-parameter — send til bridge."""
         self._bridge.set_pid_gains(axis, gains)
+
+    def _set_all_axes(self, visible: bool) -> None:
+        """Slå alle aksevalg-checkbokser av eller på."""
+        for cb in self._axis_checks:
+            cb.setChecked(visible)
+
+    @Slot(int)
+    def _on_window_changed(self, _index: int) -> None:
+        """Bytt tidsvindu på feilgrafen."""
+        size = self._window_combo.currentData()
+        if size is not None:
+            self._error_plot.set_window_size(int(size))
 
     @Slot()
     def _on_trigger_step(self) -> None:

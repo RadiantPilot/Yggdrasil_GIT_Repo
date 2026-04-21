@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QApplication
 from .bridge.controller_bridge import ControllerBridge
 from .bridge.polling_worker import PollingWorker
 from .main_window import MainWindow
+from .utils.theme import DARK, LIGHT, ThemeManager
 
 
 def _parse_args() -> argparse.Namespace:
@@ -49,6 +50,12 @@ def _parse_args() -> argparse.Namespace:
         default=30.0,
         help="Oppdateringsfrekvens for GUI-polling i Hz (default 30).",
     )
+    parser.add_argument(
+        "--theme",
+        choices=["light", "dark"],
+        default="light",
+        help="Startstema for GUI-et (kan byttes i toppmenyen).",
+    )
     return parser.parse_args()
 
 
@@ -66,6 +73,10 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Yggdrasil")
     app.setOrganizationName("AUT-2606")
+
+    # Tema må settes før plot-widgets konstrueres, slik at pyqtgraphs
+    # globale bakgrunns-/forgrunnsdefault treffer fra starten av.
+    ThemeManager.instance().apply(DARK if args.theme == "dark" else LIGHT)
 
     # Bygg bridge — mock hvis flagget er satt, ellers ekte hardware
     bridge = ControllerBridge(config_path=args.config, mock=args.mock)

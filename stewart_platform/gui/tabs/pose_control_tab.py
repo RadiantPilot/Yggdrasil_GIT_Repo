@@ -35,6 +35,8 @@ class PoseControlTab(QWidget):
         super().__init__()
         self._bridge = bridge
         self._build_ui()
+        # Synkroniser sliders når mål-pose endres utenfra (f.eks. Home-knapp)
+        self._bridge.target_pose_changed.connect(self._on_external_target_pose)
 
     def _build_ui(self) -> None:
         root = QHBoxLayout(self)
@@ -133,6 +135,14 @@ class PoseControlTab(QWidget):
         lbl = QLabel(text)
         lbl.setStyleSheet(style)
         return lbl
+
+    @Slot(object)
+    def _on_external_target_pose(self, pose: Pose) -> None:
+        """Mål-pose endret utenfra — speil verdiene inn i sliders."""
+        self._sliders.set_target_values(
+            pose.translation.x, pose.translation.y, pose.translation.z,
+            pose.rotation.x, pose.rotation.y, pose.rotation.z,
+        )
 
     @Slot(dict)
     def _on_pose_changed(self, values: dict) -> None:

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..bridge.controller_bridge import ControllerBridge
+from ..bridge.controller_bridge import CalibrationResult, ControllerBridge
 from ..bridge.state_snapshot import StateSnapshot
 from ..widgets.realtime_plot import RealtimePlot
 
@@ -183,23 +183,31 @@ class ImuTab(QWidget):
 
     @Slot()
     def _on_cal_gyro(self) -> None:
-        ok = self._bridge.calibrate_gyro()
-        if ok:
-            self._cal_status.setText("Gyro-kalibrering fullført")
-            self._cal_status.setStyleSheet("font-size: 10px; color: #4a9a3c;")
-        else:
-            self._cal_status.setText("Gyro-kalibrering feilet")
-            self._cal_status.setStyleSheet("font-size: 10px; color: #c53434;")
+        res = self._bridge.calibrate_gyro()
+        self._show_cal_result("Gyro", res)
 
     @Slot()
     def _on_cal_accel(self) -> None:
-        ok = self._bridge.calibrate_accelerometer()
-        if ok:
-            self._cal_status.setText("Akselerometer-kalibrering fullført")
-            self._cal_status.setStyleSheet("font-size: 10px; color: #4a9a3c;")
+        res = self._bridge.calibrate_accelerometer()
+        self._show_cal_result("Akselerometer", res)
+
+    def _show_cal_result(self, name: str, result: CalibrationResult) -> None:
+        """Vis resultat av kalibrering med farge som matcher utfallet."""
+        if result is CalibrationResult.OK:
+            suffix = " (mock)" if self._bridge.is_mock else ""
+            msg = f"{name}-kalibrering fullført{suffix}"
+            color = "#4a9a3c"
+        elif result is CalibrationResult.NOT_IMPL:
+            msg = f"{name}-kalibrering er ikke implementert i driveren enda"
+            color = "#d4a017"
+        elif result is CalibrationResult.NOT_READY:
+            msg = f"{name}-kalibrering krever at IMU er tilkoblet"
+            color = "#d4a017"
         else:
-            self._cal_status.setText("Akselerometer-kalibrering feilet")
-            self._cal_status.setStyleSheet("font-size: 10px; color: #c53434;")
+            msg = f"{name}-kalibrering feilet — se hendelseslogg"
+            color = "#c53434"
+        self._cal_status.setText(msg)
+        self._cal_status.setStyleSheet(f"font-size: 10px; color: {color};")
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Oppdater grafer og verdier fra snapshot."""

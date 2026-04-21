@@ -1,8 +1,11 @@
 """
 realtime_plot.py · Wrapper rundt pyqtgraph med rullerende vindu.
 
-Gir en enkel interface for sanntidsplott med flere serier,
-autoskalering og konfigurerbar vinduslengde.
+Gir en enkel interface for sanntidsplott med flere serier og
+konfigurerbar vinduslengde. Y-aksen auto-skaleres alltid; brukeren
+kan kun zoome/panorere langs x-aksen for å bestemme hvor mye data
+som vises om gangen. Lytter på ThemeManager for å oppdatere farger
+når brukeren bytter lys/mørk modus.
 """
 
 from __future__ import annotations
@@ -11,8 +14,9 @@ import numpy as np
 import pyqtgraph as pg
 
 from ..utils.ring_buffer import RingBuffer
+from ..utils.theme import Theme, ThemeManager
 
-# Farger for opptil 6 serier
+# Farger for opptil 6 serier (samme for begge tema)
 _COLORS = ["#4a9a3c", "#3498db", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c"]
 
 
@@ -20,7 +24,8 @@ class RealtimePlot(pg.PlotWidget):
     """Sanntids rullerende plot basert på pyqtgraph.
 
     Holder en ringbuffer per serie og tegner de N siste
-    samplesene på hver oppdatering.
+    samplesene på hver oppdatering. Hver serie kan skjules
+    individuelt via `set_series_visible`.
     """
 
     def __init__(
@@ -29,16 +34,26 @@ class RealtimePlot(pg.PlotWidget):
         window_size: int = 150,
         y_label: str = "",
         show_legend: bool = True,
+        lock_y: bool = True,
     ) -> None:
         super().__init__()
-        self.setBackground("w")
-        self.showGrid(x=True, y=True, alpha=0.3)
-        if y_label:
-            self.setLabel("left", y_label)
+        self._y_label = y_label
+        self._lock_y = lock_y
+        self._legend: pg.LegendItem | None = None
+        self._show_legend = show_legend
+
+        # Begrens brukerens zoom-frihet
+        if lock_y:
+            # Brukeren kan kun zoome/panorere langs x; y følger data.
+            self.setMouseEnabled(x=True, y=False)
+            self.enableAutoRange(axis="y", enable=True)
+            self.setMenuEnabled(False)
 
         names = series_names or ["y"]
+        self._names = list(names)
         self._buffers: list[RingBuffer] = []
         self._curves: list[pg.PlotDataItem] = []
+        self._visible: list[bool] = []
 
         for i, name in enumerate(names):
             buf = RingBuffer(window_size, 1)
@@ -46,9 +61,34 @@ class RealtimePlot(pg.PlotWidget):
             curve = self.plot(pen=pg.mkPen(color=color, width=1.5), name=name)
             self._buffers.append(buf)
             self._curves.append(curve)
+            self._visible.append(True)
 
         if show_legend and len(names) > 1:
-            self.addLegend(offset=(10, 10))
+            self._legend = self.addLegend(offset=(10, 10))
+
+        # Lytt på tema-endringer og anvend gjeldende tema én gang
+        mgr = ThemeManager.instance()
+        self._apply_theme(mgr.current)
+        mgr.theme_changed.connect(self._apply_theme)
+
+    # ------------------------------------------------------------------
+    # Tema
+    # ------------------------------------------------------------------
+
+    def _apply_theme(self, theme: Theme) -> None:
+        """Oppdater bakgrunn, akser og grid til gitt tema."""
+        self.setBackground(theme.plot_bg)
+        self.showGrid(x=True, y=True, alpha=theme.grid_alpha)
+        for ax_name in ("left", "bottom"):
+            ax = self.getAxis(ax_name)
+            ax.setPen(pg.mkPen(theme.plot_axis))
+            ax.setTextPen(pg.mkPen(theme.plot_fg))
+        if self._y_label:
+            self.setLabel("left", self._y_label, color=theme.plot_fg)
+
+    # ------------------------------------------------------------------
+    # Data
+    # ------------------------------------------------------------------
 
     def append_values(self, values: list[float]) -> None:
         """Legg til en sample for alle serier.
@@ -63,6 +103,9 @@ class RealtimePlot(pg.PlotWidget):
     def refresh(self) -> None:
         """Oppdater kurvene fra bufferdata. Kall etter append_values."""
         for i, (buf, curve) in enumerate(zip(self._buffers, self._curves)):
+            if not self._visible[i]:
+                curve.setData([], [])
+                continue
             data = buf.get_channel(0)
             if len(data) > 0:
                 curve.setData(np.arange(len(data)), data)
@@ -72,3 +115,32 @@ class RealtimePlot(pg.PlotWidget):
         for buf in self._buffers:
             buf.clear()
         self.refresh()
+
+    # ------------------------------------------------------------------
+    # Kontroll
+    # ------------------------------------------------------------------
+
+    def set_series_visible(self, index: int, visible: bool) -> None:
+        """Skjul eller vis én serie uten å miste bufferdata."""
+        if 0 <= index < len(self._visible):
+            self._visible[index] = visible
+            self.refresh()
+
+    def set_window_size(self, size: int) -> None:
+        """Endre vinduslengden (antall samples vist)."""
+        size = max(10, int(size))
+        new_buffers: list[RingBuffer] = []
+        for old in self._buffers:
+            nb = RingBuffer(size, 1)
+            # Bevar de siste `size` samples ved bytte
+            data = old.get_channel(0)
+            if len(data) > 0:
+                for v in data[-size:]:
+                    nb.append(float(v))
+            new_buffers.append(nb)
+        self._buffers = new_buffers
+        self.refresh()
+
+    @property
+    def series_names(self) -> list[str]:
+        return list(self._names)

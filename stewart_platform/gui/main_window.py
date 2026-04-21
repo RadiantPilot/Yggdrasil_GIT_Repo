@@ -31,6 +31,7 @@ from .tabs.overview_tab import OverviewTab
 from .tabs.pid_tuning_tab import PidTuningTab
 from .tabs.pose_control_tab import PoseControlTab
 from .tabs.safety_tab import SafetyTab
+from .utils.theme import ThemeManager
 
 
 class MainWindow(QMainWindow):
@@ -76,10 +77,23 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._btn_stop)
 
         self._btn_home = QPushButton("⌂ Home")
+        self._btn_home.setToolTip(
+            "Sett mål-pose til hvilestilling (0,0,0) og be servoene "
+            "kjøre til home-vinkel fra config."
+        )
         self._btn_home.clicked.connect(self._on_home_clicked)
         layout.addWidget(self._btn_home)
 
         layout.addStretch()
+
+        # Tema-bytte — skifter mellom lys og mørk modus
+        self._btn_theme = QPushButton("🌙 Mørk")
+        self._btn_theme.setToolTip("Bytt mellom lys og mørk modus")
+        self._btn_theme.setCheckable(True)
+        self._btn_theme.setChecked(ThemeManager.instance().current.name == "dark")
+        self._update_theme_button_label()
+        self._btn_theme.clicked.connect(self._on_theme_toggle)
+        layout.addWidget(self._btn_theme)
 
         self._lbl_mode = QLabel("Modus: —")
         self._lbl_mode.setStyleSheet("color: #666; padding: 0 12px;")
@@ -179,7 +193,24 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_home_clicked(self) -> None:
         self._bridge.request_home()
-        self.statusBar().showMessage("Home-kommando sendt.", 3000)
+        self.statusBar().showMessage("Home-kommando sendt — mål-pose satt til (0,0,0).", 3000)
+
+    @Slot()
+    def _on_theme_toggle(self) -> None:
+        """Bytt mellom lys og mørk modus."""
+        new_theme = ThemeManager.instance().toggle()
+        self._btn_theme.setChecked(new_theme.name == "dark")
+        self._update_theme_button_label()
+        self.statusBar().showMessage(
+            f"Tema: {'mørk' if new_theme.name == 'dark' else 'lys'}", 2000,
+        )
+
+    def _update_theme_button_label(self) -> None:
+        """Sett label som antyder hva klikk vil gjøre."""
+        if ThemeManager.instance().current.name == "dark":
+            self._btn_theme.setText("☀ Lys")
+        else:
+            self._btn_theme.setText("🌙 Mørk")
 
     @Slot()
     def _on_estop_clicked(self) -> None:

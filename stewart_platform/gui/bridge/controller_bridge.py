@@ -15,6 +15,7 @@ import math
 import time
 from collections import deque
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
@@ -34,6 +35,20 @@ class BridgeEvent:
     timestamp: float
     level: str   # "INFO", "WARN", "FAIL"
     message: str
+
+
+class CalibrationResult(Enum):
+    """Resultat av et kalibreringsforsøk.
+
+    OK          — kalibrering fullført (hardware eller mock).
+    NOT_READY   — ingen IMU tilgjengelig (ikke initialisert).
+    NOT_IMPL    — driveren har ikke implementert kalibreringen enda.
+    FAILED      — kalibrering startet men feilet underveis.
+    """
+    OK = "ok"
+    NOT_READY = "not_ready"
+    NOT_IMPL = "not_impl"
+    FAILED = "failed"
 
 
 class ControllerBridge(QObject):
@@ -294,13 +309,18 @@ class ControllerBridge(QObject):
             self._log_event("INFO", "Kontrollsløyfe stoppet")
 
     def request_home(self) -> None:
+        home_pose = Pose.home()
         if self._mock:
-            self._mock_target_pose = Pose.home()
+            self._mock_target_pose = home_pose
             self._log_event("INFO", "Home-posisjon satt")
+            self.target_pose_changed.emit(home_pose)
             return
         if self._controller is not None:
             self._controller.home()
             self._log_event("INFO", "Home-posisjon satt")
+            # MotionController.home() oppdaterer selv _target_pose. Vi
+            # emitterer signalet her slik at GUI-widgets kan synkroniseres.
+            self.target_pose_changed.emit(home_pose)
 
     def set_target_pose(self, pose: Pose) -> bool:
         if self._mock:
@@ -412,30 +432,51 @@ class ControllerBridge(QObject):
     # IMU-kalibrering
     # ------------------------------------------------------------------
 
-    def calibrate_gyro(self) -> bool:
-        """Start gyro-kalibrering."""
+    def calibrate_gyro(self) -> CalibrationResult:
+        """Start gyro-kalibrering.
+
+        Returnerer en CalibrationResult slik at GUI kan skille mellom
+        "fullført", "ingen IMU", "ikke implementert i driveren" og
+        "driveren feilet".
+        """
         if self._mock:
             self._log_event("INFO", "Gyro-kalibrering fullført (mock)")
-            return True
+            return CalibrationResult.OK
         if self._controller is None:
-            return False
+            return CalibrationResult.NOT_READY
         imu = self._controller.base_imu
         if imu is None:
-            return False
-        imu.calibrate_gyro_bias()
+            return CalibrationResult.NOT_READY
+        try:
+            imu.calibrate_gyro_bias()
+        except NotImplementedError:
+            self._log_event("WARN", "Gyro-kalibrering er ikke implementert i driveren")
+            return CalibrationResult.NOT_IMPL
+        except Exception as exc:  # noqa: BLE001 — bredt ment
+            self._log_event("FAIL", f"Gyro-kalibrering feilet: {exc}")
+            return CalibrationResult.FAILED
         self._log_event("INFO", "Gyro-kalibrering fullført")
-        return True
+        return CalibrationResult.OK
 
-    def calibrate_accelerometer(self) -> bool:
-        """Start akselerometer-kalibrering."""
+    def calibrate_accelerometer(self) -> CalibrationResult:
+        """Start akselerometer-kalibrering. Se calibrate_gyro() for retur."""
         if self._mock:
             self._log_event("INFO", "Akselerometer-kalibrering fullført (mock)")
-            return True
+            return CalibrationResult.OK
         if self._controller is None:
-            return False
+            return CalibrationResult.NOT_READY
         imu = self._controller.base_imu
         if imu is None:
-            return False
-        imu.calibrate_accelerometer_offset()
+            return CalibrationResult.NOT_READY
+        try:
+            imu.calibrate_accelerometer_offset()
+        except NotImplementedError:
+            self._log_event(
+                "WARN", "Akselerometer-kalibrering er ikke implementert i driveren",
+            )
+            return CalibrationResult.NOT_IMPL
+        except Exception as exc:  # noqa: BLE001 — bredt ment
+            self._log_event("FAIL", f"Akselerometer-kalibrering feilet: {exc}")
+            return CalibrationResult.FAILED
         self._log_event("INFO", "Akselerometer-kalibrering fullført")
-        return True
+        return CalibrationResult.OK

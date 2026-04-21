@@ -11,16 +11,15 @@ from __future__ import annotations
 import numpy as np
 import pyqtgraph as pg
 
+from ..utils.theme import Theme, ThemeManager
+
 
 class ResponsePlot(pg.PlotWidget):
     """Step-respons graf for PID-tuning."""
 
     def __init__(self, y_label: str = "") -> None:
         super().__init__()
-        self.setBackground("w")
-        self.showGrid(x=True, y=True, alpha=0.3)
-        if y_label:
-            self.setLabel("left", y_label)
+        self._y_label = y_label
         self.setLabel("bottom", "tid (s)")
 
         self._setpoint_curve = self.plot(
@@ -37,6 +36,22 @@ class ResponsePlot(pg.PlotWidget):
         self._metrics_text = pg.TextItem("", anchor=(0, 0))
         self._metrics_text.setPos(0, 0)
         self.addItem(self._metrics_text)
+
+        mgr = ThemeManager.instance()
+        self._apply_theme(mgr.current)
+        mgr.theme_changed.connect(self._apply_theme)
+
+    def _apply_theme(self, theme: Theme) -> None:
+        self.setBackground(theme.plot_bg)
+        self.showGrid(x=True, y=True, alpha=theme.grid_alpha)
+        for ax_name in ("left", "bottom"):
+            ax = self.getAxis(ax_name)
+            ax.setPen(pg.mkPen(theme.plot_axis))
+            ax.setTextPen(pg.mkPen(theme.plot_fg))
+        if self._y_label:
+            self.setLabel("left", self._y_label, color=theme.plot_fg)
+        self.setLabel("bottom", "tid (s)", color=theme.plot_fg)
+        self._metrics_text.setColor(theme.plot_fg)
 
     def set_data(
         self,
