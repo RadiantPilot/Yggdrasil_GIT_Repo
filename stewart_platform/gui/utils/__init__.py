@@ -1,0 +1,1 @@
+"""utils · hjelpeklasser for GUI."""
