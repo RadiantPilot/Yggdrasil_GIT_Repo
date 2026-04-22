@@ -397,12 +397,56 @@ class ControllerBridge(QObject):
     # ------------------------------------------------------------------
 
     def update_config(self, config: PlatformConfig) -> List[str]:
-        """Valider og oppdater konfigurasjon. Returnerer feilmeldinger."""
+        """Valider og aktiver ny konfigurasjon ved full reinit av domenet.
+
+        Strukturelle parametere (geometri, I2C-adresser, PWM-frekvens,
+        servotabell, loop-rate) er bundet inn i domene-objektene
+        (ServoArray, PCA9685Driver, PlatformGeometry, InverseKinematics,
+        PoseController) ved initialize(). For å unngå halvt oppdatert
+        tilstand bygges hele MotionController på nytt.
+
+        Krever at kontrollsløyfen er stoppet. Returnerer en liste med
+        feilmeldinger (tom hvis OK).
+        """
         errors = config.validate()
         if errors:
             return errors
+
+        if not self._mock and self._controller is not None and self._controller.is_running():
+            return ["Stopp kontrollsløyfen før konfigurasjonen kan endres."]
+
         self._config = config
-        self._log_event("INFO", "Konfigurasjon oppdatert")
+
+        if self._mock:
+            # Nullstill mock-tilstand så GUI-et oppfører seg som etter
+            # en frisk initialize().
+            self._mock_running = False
+            self._mock_e_stopped = False
+            self._mock_e_stop_reason = None
+            self._mock_target_pose = Pose.home()
+            self._mock_pid_gains = {
+                axis: PIDGains(
+                    kp=config.pid_gains.kp,
+                    ki=config.pid_gains.ki,
+                    kd=config.pid_gains.kd,
+                    output_min=config.pid_gains.output_min,
+                    output_max=config.pid_gains.output_max,
+                    integral_limit=config.pid_gains.integral_limit,
+                )
+                for axis in Axis
+            }
+        else:
+            try:
+                if self._controller is not None:
+                    self._controller.shutdown()
+                self._controller = MotionController(config)
+                self._controller.initialize()
+            except Exception as exc:  # noqa: BLE001 — hardware kan feile på mange måter
+                self._controller = None
+                self._log_event("FAIL", f"Reinit feilet: {exc}")
+                return [f"Reinitialisering feilet: {exc}"]
+
+        self._log_event("INFO", "Konfigurasjon aktivert (domenet reinitialisert)")
         self.config_changed.emit(config)
         return []
 

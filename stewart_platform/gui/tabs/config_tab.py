@@ -136,6 +136,10 @@ class ConfigTab(QWidget):
         btn_row.addWidget(self._btn_validate)
 
         self._btn_apply = QPushButton("Bruk")
+        self._btn_apply.setToolTip(
+            "Aktiverer ny konfigurasjon ved full reinit av domenet.\n"
+            "Krever at kontrollsløyfen er stoppet."
+        )
         self._btn_apply.clicked.connect(self._on_apply)
         btn_row.addWidget(self._btn_apply)
 
@@ -248,16 +252,19 @@ class ConfigTab(QWidget):
 
     @Slot()
     def _on_apply(self) -> None:
-        """Bruk konfigurasjonen."""
+        """Bruk konfigurasjonen (full reinit av domenet)."""
         try:
             cfg = self._build_config_from_ui()
             errors = self._bridge.update_config(cfg)
             if errors:
                 self._status_label.setText(f"{len(errors)} feil")
                 self._status_label.setStyleSheet("font-size: 11px; color: #c53434;")
-                QMessageBox.warning(self, "Valideringsfeil", "\n".join(errors))
+                QMessageBox.warning(self, "Kan ikke aktivere", "\n".join(errors))
             else:
-                self._status_label.setText("Konfigurasjon aktivert")
+                # Re-les fra bridge slik at UI-et reflekterer den faktiske
+                # aktive configen (normalisert av PlatformConfig.__post_init__).
+                self._load_config()
+                self._status_label.setText("Konfigurasjon aktivert · domenet reinitialisert")
                 self._status_label.setStyleSheet("font-size: 11px; color: #4a9a3c;")
         except (ValueError, TypeError) as e:
             self._status_label.setText("Feil ved aktivering")
@@ -283,5 +290,14 @@ class ConfigTab(QWidget):
         self._status_label.setStyleSheet("font-size: 11px; color: #666;")
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
-        """Config-tab trenger ikke hyppige snapshot-oppdateringer."""
-        pass
+        """Disable Bruk-knappen mens kontrollsløyfen kjører.
+
+        Strukturelle config-endringer krever full reinit av domenet, så
+        sløyfen må være stoppet først. Andre felt holdes redigerbare slik
+        at brukeren kan forberede endringer mens systemet kjører.
+        """
+        running = snapshot.is_running
+        self._btn_apply.setEnabled(not running)
+        if running:
+            self._status_label.setText("Stopp sløyfen for å aktivere endringer")
+            self._status_label.setStyleSheet("font-size: 11px; color: #888;")
