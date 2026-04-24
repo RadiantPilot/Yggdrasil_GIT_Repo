@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stewart-platform"
+version = "0.1.0"
+description = "Yggdrasil - 6-DOF Stewart-plattform styrt av Raspberry Pi 4B"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "AUT-2606" },
+]
+dependencies = [
+    "numpy>=1.24",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.5",
+    "pyqtgraph>=0.13",
+]
+hardware = [
+    "smbus2>=0.4",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["stewart_platform*"]
+exclude = ["tests*"]

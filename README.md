@@ -58,13 +58,15 @@ IMU-data -> IMUFusion -> PoseController (PID) -> InverseKinematics -> SafetyMoni
 
 ### Avhengigheter
 
-| Pakke | Bruk |
-|-------|------|
-| `numpy` | Matematikk og lineaer algebra |
-| `pyyaml` | YAML-konfigurasjonsfiler |
-| `PySide6` | Qt6-basert GUI-rammeverk |
-| `pyqtgraph` | Sanntidsplot og responsgrafer i GUI-et |
-| `smbus2` | I2C-kommunikasjon (kun pa Raspberry Pi) |
+Pakken definerer avhengigheter i `pyproject.toml` og bruker valgfrie grupper
+sa du kan installere kun det du trenger for ditt bruksomrade:
+
+| Gruppe | Pakker | Nar trenger jeg det? |
+|--------|--------|----------------------|
+| (kjerne) | `numpy`, `PyYAML` | Alltid — installeres automatisk |
+| `gui` | `PySide6`, `pyqtgraph` | For a kjore GUI-et |
+| `hardware` | `smbus2` | For a snakke med I2C-enheter pa Raspberry Pi |
+| `dev` | `pytest` | For a kjore tester |
 
 ### Oppsett
 
@@ -73,13 +75,18 @@ IMU-data -> IMUFusion -> PoseController (PID) -> InverseKinematics -> SafetyMoni
 git clone <repo-url>
 cd Yggdrasil_GIT_Repo
 
-# Installer GUI- og kjerneavhengigheter
-pip install -r requirements-gui.txt
+# Velg det som passer for deg:
 
-# Pa Raspberry Pi, i tillegg, for faktisk maskinvare-styring:
-pip install smbus2
+# Utvikling pa PC (GUI + tester, uten hardware)
+pip install -e ".[gui,dev]"
 
-# Installer som utviklingspakke (valgfritt)
+# Full installasjon pa Raspberry Pi (hardware + GUI)
+pip install -e ".[gui,hardware]"
+
+# Alt (hardware + GUI + tester)
+pip install -e ".[gui,hardware,dev]"
+
+# Kun kjerne (bibliotekbruk uten GUI eller hardware)
 pip install -e .
 ```
 
