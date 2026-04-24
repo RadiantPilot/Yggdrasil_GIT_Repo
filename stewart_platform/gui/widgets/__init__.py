@@ -1,1 +1,1 @@
-# gui/widgets/__init__.py
+"""widgets · gjenbrukbare GUI-komponenter."""

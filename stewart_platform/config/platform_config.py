@@ -7,10 +7,25 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from enum import IntEnum
 from pathlib import Path
 from typing import List
 
 import yaml
+
+
+class Axis(IntEnum):
+    """Frihetsgrader for Stewart-plattformen.
+
+    Brukes til å identifisere enkeltakser ved per-akse
+    PID-tuning og step-respons.
+    """
+    X = 0
+    Y = 1
+    Z = 2
+    ROLL = 3
+    PITCH = 4
+    YAW = 5
 
 
 @dataclass
@@ -234,37 +249,57 @@ class PlatformConfig:
         with open(filepath, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
-    def validate(self) -> None:
+    def validate(self) -> List[str]:
         """Valider at konfigurasjonen er konsistent og fysisk mulig.
+
+        Samler alle valideringsfeil i en liste slik at GUI-en
+        kan vise alle problemer samtidig.
 
         Sjekker blant annet at:
         - Det er nøyaktig 6 servokonfigurasjoner.
         - Vinkelgrenser er gyldige (min < max).
-        - Staglengden er lang nok for den gitte geometrien.
-        - I2C-adresser er innenfor gyldig område.
+        - Geometriske dimensjoner er positive.
 
-        Raises:
-            ValueError: Hvis konfigurasjonen er ugyldig.
+        Returns:
+            Tom liste hvis alt er gyldig, ellers liste med feilmeldinger.
         """
+        errors: List[str] = []
+
         if len(self.servo_configs) != 6:
-            raise ValueError(
+            errors.append(
                 f"Krever nøyaktig 6 servokonfigurasjoner, fikk {len(self.servo_configs)}."
             )
 
         for i, sc in enumerate(self.servo_configs):
             if sc.min_angle_deg >= sc.max_angle_deg:
-                raise ValueError(
+                errors.append(
                     f"Servo {i}: min_angle_deg ({sc.min_angle_deg}) må være "
                     f"mindre enn max_angle_deg ({sc.max_angle_deg})."
                 )
 
         if self.base_radius <= 0:
-            raise ValueError(f"base_radius må være positiv, fikk {self.base_radius}.")
+            errors.append(f"base_radius må være positiv, fikk {self.base_radius}.")
         if self.platform_radius <= 0:
-            raise ValueError(f"platform_radius må være positiv, fikk {self.platform_radius}.")
+            errors.append(f"platform_radius må være positiv, fikk {self.platform_radius}.")
         if self.rod_length <= 0:
-            raise ValueError(f"rod_length må være positiv, fikk {self.rod_length}.")
+            errors.append(f"rod_length må være positiv, fikk {self.rod_length}.")
         if self.home_height <= 0:
-            raise ValueError(f"home_height må være positiv, fikk {self.home_height}.")
+            errors.append(f"home_height må være positiv, fikk {self.home_height}.")
         if self.servo_horn_length <= 0:
-            raise ValueError(f"servo_horn_length må være positiv, fikk {self.servo_horn_length}.")
+            errors.append(f"servo_horn_length må være positiv, fikk {self.servo_horn_length}.")
+
+        return errors
+
+    def raise_if_invalid(self) -> None:
+        """Valider konfigurasjonen og kast exception ved feil.
+
+        Wrapper rundt validate() for kode som forventer exception-basert
+        feilhåndtering.
+
+        Raises:
+            ValueError: Hvis konfigurasjonen er ugyldig. Meldingen
+                        inneholder alle valideringsfeil.
+        """
+        errors = self.validate()
+        if errors:
+            raise ValueError("\n".join(errors))

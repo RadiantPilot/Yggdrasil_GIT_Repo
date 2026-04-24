@@ -139,3 +139,75 @@ class TestMotionControllerMetoder:
         """Sjekk at shutdown() eksisterer for sikker avslutning."""
         assert hasattr(controller, 'shutdown')
         assert callable(controller.shutdown)
+
+    def test_home_eksisterer(self, controller):
+        """Sjekk at home() eksisterer for a ga til hjemmeposisjon."""
+        assert hasattr(controller, 'home')
+        assert callable(controller.home)
+
+
+class TestMotionControllerHome:
+    """Tester for home()-metoden."""
+
+    def test_home_delegerer_til_servo_array(self, controller):
+        """Sjekk at home() kaller ServoArray.go_home()."""
+        mock_servo_array = MagicMock()
+        controller._servo_array = mock_servo_array
+        controller.home()
+        mock_servo_array.go_home.assert_called_once()
+
+    def test_home_resetter_target_pose(self, controller):
+        """Sjekk at home() setter target_pose tilbake til hjemmepose."""
+        controller._target_pose = Pose(
+            translation=Vector3(10.0, 20.0, 30.0),
+            rotation=Vector3(5.0, 10.0, 15.0),
+        )
+        mock_servo_array = MagicMock()
+        controller._servo_array = mock_servo_array
+        controller.home()
+        assert controller.target_pose.translation.x == 0.0
+        assert controller.target_pose.translation.y == 0.0
+        assert controller.target_pose.translation.z == 0.0
+
+    def test_home_uten_init_gjor_ingenting(self, controller):
+        """Sjekk at home() ikke krasjer naar servo_array er None."""
+        controller.home()  # Skal ikke kaste exception
+
+
+class TestMotionControllerSetTargetPoseBool:
+    """Tester for set_target_pose() som returnerer bool."""
+
+    def test_gyldig_pose_returnerer_true(self, controller):
+        """Sjekk at gyldig pose aksepteres og returnerer True."""
+        pose = Pose(translation=Vector3(1.0, 1.0, 1.0))
+        result = controller.set_target_pose(pose)
+        assert result is True
+        assert controller.target_pose.translation.x == 1.0
+
+    def test_ugyldig_pose_returnerer_false(self, controller):
+        """Sjekk at ugyldig pose avvises og returnerer False.
+
+        Posen er utenfor sikkerhetsgrensene (max_translation_mm=50).
+        """
+        from stewart_platform.config.platform_config import SafetyConfig, ServoConfig
+        from stewart_platform.safety.safety_monitor import SafetyMonitor
+
+        monitor = SafetyMonitor(SafetyConfig(max_translation_mm=10.0), [ServoConfig()] * 6)
+        controller._safety_monitor = monitor
+
+        pose = Pose(translation=Vector3(100.0, 100.0, 100.0))
+        result = controller.set_target_pose(pose)
+        assert result is False
+
+    def test_ugyldig_pose_endrer_ikke_target(self, controller):
+        """Sjekk at avvist pose ikke endrer eksisterende target."""
+        from stewart_platform.config.platform_config import SafetyConfig, ServoConfig
+        from stewart_platform.safety.safety_monitor import SafetyMonitor
+
+        monitor = SafetyMonitor(SafetyConfig(max_translation_mm=10.0), [ServoConfig()] * 6)
+        controller._safety_monitor = monitor
+
+        original = controller.target_pose
+        pose = Pose(translation=Vector3(100.0, 100.0, 100.0))
+        controller.set_target_pose(pose)
+        assert controller.target_pose.translation.x == original.translation.x

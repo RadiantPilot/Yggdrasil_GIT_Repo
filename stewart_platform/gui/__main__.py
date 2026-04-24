@@ -1,8 +1,8 @@
-# __main__.py
-# ===========
-# Startpunkt for GUI-et.
-# Kjor med: python -m stewart_platform.gui
+"""Inngangspunkt for `python -m stewart_platform.gui`."""
 
-from .app import run_demo
+from __future__ import annotations
 
-run_demo()
+from .app import main
+
+if __name__ == "__main__":
+    main()

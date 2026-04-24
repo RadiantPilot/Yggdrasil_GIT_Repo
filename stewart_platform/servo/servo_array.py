@@ -102,6 +102,32 @@ class ServoArray:
             self._servos[i].is_within_limits(angles[i]) for i in range(6)
         )
 
+    def get_servo_configs(self) -> List[ServoConfig]:
+        """Hent konfigurasjonene for alle 6 servoer.
+
+        Returns:
+            Liste med 6 ServoConfig-instanser.
+        """
+        return [servo._config for servo in self._servos]
+
+    def set_servo_config(self, idx: int, cfg: ServoConfig) -> bool:
+        """Oppdater konfigurasjonen for en enkelt servo.
+
+        Oppretter en ny Servo-instans med den nye konfigurasjonen
+        og erstatter den eksisterende.
+
+        Args:
+            idx: Servoindeks (0-5).
+            cfg: Ny konfigurasjon for servoen.
+
+        Returns:
+            True hvis konfigurasjonen ble akseptert, False ved ugyldig indeks.
+        """
+        if idx < 0 or idx >= len(self._servos):
+            return False
+        self._servos[idx] = Servo(cfg, self._driver)
+        return True
+
     def __getitem__(self, index: int) -> Servo:
         """Hent en enkelt servo via indeks (0-5).
 

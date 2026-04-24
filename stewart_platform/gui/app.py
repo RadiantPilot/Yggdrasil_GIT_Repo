@@ -1,189 +1,112 @@
-# app.py
-# ======
-# Hovedvindu for Stewart-plattformens GUI.
-# Kobler sammen alle komponenter: toppbar, faner, IMU-panel,
-# sikkerhetsbar, og popup-menyer i et CustomTkinter-vindu.
+"""
+app.py · Inngangspunkt for GUI-applikasjonen.
+
+Opprett QApplication, parse argumenter, instansier ControllerBridge
+(ekte eller mock), start PollingWorker og åpne MainWindow. Sørg for
+ryddig nedkobling ved exit.
+
+Kjøres som:
+    python -m stewart_platform.gui                    # ekte hardware
+    python -m stewart_platform.gui --mock             # simulert
+    python -m stewart_platform.gui --config PATH      # alternativ YAML
+    python -m stewart_platform.gui --rate 30          # polling-rate (Hz)
+"""
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+import argparse
+import signal
+import sys
+from pathlib import Path
 
-import customtkinter as ctk
+from PySide6.QtCore import QThread, Qt
+from PySide6.QtWidgets import QApplication
 
-from . import theme
-from .data_bridge import GUIDataBridge
-from .components.top_bar import TopBar
-from .components.safety_bar import SafetyBar
-from .components.imu_panel import IMUPanel
-from .views.tilt_control import TiltControlView
-from .views.platform_3d import Platform3DView
-
-if TYPE_CHECKING:
-    from ..config.platform_config import PlatformConfig
-    from ..control.motion_controller import MotionController
-    from ..geometry.platform_geometry import PlatformGeometry
+from .bridge.controller_bridge import ControllerBridge
+from .bridge.polling_worker import PollingWorker
+from .main_window import MainWindow
+from .utils.theme import DARK, LIGHT, ThemeManager
 
 
-class StewartPlatformApp(ctk.CTk):
-    """Hovedapplikasjon for Stewart-plattformens GUI.
+def _parse_args() -> argparse.Namespace:
+    """Parse kommandolinje-argumenter."""
+    parser = argparse.ArgumentParser(
+        description="Yggdrasil GUI — Stewart-plattform kontrollgrensesnitt",
+    )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Kjør i simulert modus uten å snakke med hardware.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/default_config.yaml"),
+        help="Sti til YAML-konfigurasjonsfil.",
+    )
+    parser.add_argument(
+        "--rate",
+        type=float,
+        default=30.0,
+        help="Oppdateringsfrekvens for GUI-polling i Hz (default 30).",
+    )
+    parser.add_argument(
+        "--theme",
+        choices=["light", "dark"],
+        default="light",
+        help="Startstema for GUI-et (kan byttes i toppmenyen).",
+    )
+    return parser.parse_args()
 
-    Setter opp vinduet med:
-    - Toppbar (tilstand, start/stopp, menyknapper)
-    - 2 hovedfaner (Styring, 3D-visning)
-    - IMU-panel (alltid synlig)
-    - Sikkerhetsbar (NODSTOPP, alltid synlig)
-    - Popup-menyer for servoer og innstillinger
+
+def main() -> int:
+    """Kjør GUI-applikasjonen.
+
+    Returns:
+        Exit-kode fra Qt event-loopen.
     """
+    args = _parse_args()
 
-    def __init__(
-        self,
-        config: Optional[PlatformConfig] = None,
-        controller: Optional[MotionController] = None,
-        geometry: Optional[PlatformGeometry] = None,
-    ) -> None:
-        """Opprett hovedvinduet.
+    # Tillat Ctrl+C fra terminalen også når Qt event-loop kjører
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-        Args:
-            config: Plattformkonfigurasjon (for innstillinger).
-            controller: MotionController (for live-data). None for demo-modus.
-            geometry: PlatformGeometry (for 3D-visning).
-        """
-        super().__init__()
+    app = QApplication(sys.argv)
+    app.setApplicationName("Yggdrasil")
+    app.setOrganizationName("AUT-2606")
 
-        # Konfigurer vindu
-        self.title("Stewart Platform")
-        self.geometry(f"{theme.WINDOW_WIDTH}x{theme.WINDOW_HEIGHT}")
-        self.minsize(900, 600)
-        self.configure(fg_color=theme.BG_PRIMARY)
+    # Tema må settes før plot-widgets konstrueres, slik at pyqtgraphs
+    # globale bakgrunns-/forgrunnsdefault treffer fra starten av.
+    ThemeManager.instance().apply(DARK if args.theme == "dark" else LIGHT)
 
-        # CustomTkinter-tema
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("dark-blue")
+    # Bygg bridge — mock hvis flagget er satt, ellers ekte hardware
+    bridge = ControllerBridge(config_path=args.config, mock=args.mock)
+    bridge.initialize()
 
-        self._config = config
-        self._geometry = geometry
+    # Start polling-worker på egen tråd
+    worker_thread = QThread()
+    worker_thread.setObjectName("YggdrasilPollingThread")
+    worker = PollingWorker(bridge, rate_hz=args.rate)
+    worker.moveToThread(worker_thread)
+    worker_thread.started.connect(worker.run)
 
-        # Data bridge
-        self._data_bridge = GUIDataBridge()
-        if controller is not None:
-            self._data_bridge.connect(controller)
+    # Hovedvindu
+    window = MainWindow(bridge)
+    worker.snapshot_ready.connect(window.on_snapshot, Qt.QueuedConnection)
+    window.show()
 
-        # Referanser til popup-vinduer
-        self._servo_menu: Optional[ctk.CTkToplevel] = None
-        self._settings_window: Optional[ctk.CTkToplevel] = None
+    worker_thread.start()
 
-        # --- Bygg layout ---
-        self._build_ui()
+    # Ryddig nedkobling når Qt lukker
+    def _shutdown() -> None:
+        worker.stop()
+        worker_thread.quit()
+        worker_thread.wait(2000)
+        bridge.shutdown()
 
-        # Start periodisk oppdatering
-        self._schedule_update()
+    app.aboutToQuit.connect(_shutdown)
 
-    def _build_ui(self) -> None:
-        """Bygg hele GUI-layouten."""
-
-        # Toppbar
-        self._top_bar = TopBar(
-            self, self._data_bridge,
-            on_settings=self._open_settings,
-            on_servo_menu=self._open_servo_menu,
-        )
-        self._top_bar.pack(fill="x")
-
-        # Hovedomrade (faner + IMU-panel)
-        self._main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._main_frame.pack(fill="both", expand=True)
-
-        # Fane-system
-        self._tabview = ctk.CTkTabview(
-            self._main_frame,
-            fg_color=theme.BG_PANEL,
-            segmented_button_fg_color=theme.BG_ACCENT,
-            segmented_button_selected_color=theme.COLOR_BLUE,
-            segmented_button_unselected_color=theme.BG_ACCENT,
-        )
-        self._tabview.pack(fill="both", expand=True, padx=10, pady=(5, 0))
-
-        self._tabview.add("Styring")
-        self._tabview.add("3D-visning")
-
-        # Fane 1: Tilt-styring
-        self._tilt_view = TiltControlView(
-            self._tabview.tab("Styring"),
-            self._data_bridge,
-        )
-        self._tilt_view.pack(fill="both", expand=True)
-
-        # Fane 2: 3D-visning
-        self._3d_view = Platform3DView(
-            self._tabview.tab("3D-visning"),
-            self._data_bridge,
-            geometry=self._geometry,
-        )
-        self._3d_view.pack(fill="both", expand=True)
-
-        # IMU-panel (alltid synlig under fanene)
-        self._imu_panel = IMUPanel(self._main_frame, self._data_bridge)
-        self._imu_panel.pack(fill="x", padx=10, pady=(5, 5))
-
-        # Sikkerhetsbar (bunn)
-        self._safety_bar = SafetyBar(self, self._data_bridge)
-        self._safety_bar.pack(fill="x")
-
-    def _open_servo_menu(self) -> None:
-        """Apne servo-kontrollvinduet."""
-        if self._servo_menu is None or not self._servo_menu.winfo_exists():
-            from .popups.servo_menu import ServoMenu
-            self._servo_menu = ServoMenu(self, self._data_bridge)
-        else:
-            self._servo_menu.focus()
-
-    def _open_settings(self) -> None:
-        """Apne innstillingsvinduet."""
-        if self._settings_window is None or not self._settings_window.winfo_exists():
-            from .popups.settings_window import SettingsWindow
-            self._settings_window = SettingsWindow(
-                self, self._data_bridge, self._config)
-        else:
-            self._settings_window.focus()
-
-    def _schedule_update(self) -> None:
-        """Planlegg periodisk oppdatering av GUI."""
-        self._update_gui()
-        self.after(theme.GUI_UPDATE_INTERVAL_MS, self._schedule_update)
-
-    def _update_gui(self) -> None:
-        """Oppdater alle GUI-komponenter fra data bridge."""
-        # Oppdater data fra kontroller forst
-        self._data_bridge.update_from_controller()
-
-        # Oppdater permanente komponenter
-        self._top_bar.update_from_state()
-        self._safety_bar.update_from_state()
-        self._imu_panel.update_from_state()
-
-        # Oppdater kun aktiv fane
-        current_tab = self._tabview.get()
-        if current_tab == "Styring":
-            self._tilt_view.update_from_state()
-        elif current_tab == "3D-visning":
-            self._3d_view.update_from_state()
-
-
-def run_demo() -> None:
-    """Kjor GUI i demo-modus uten maskinvare.
-
-    Nyttig for utvikling og testing pa PC uten Raspberry Pi.
-    Bruker standardkonfigurasjon og simulert data.
-    """
-    from ..config.platform_config import PlatformConfig
-    from ..geometry.platform_geometry import PlatformGeometry
-
-    config = PlatformConfig()
-    geometry = PlatformGeometry(config)
-
-    app = StewartPlatformApp(config=config, geometry=geometry)
-    app.mainloop()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    run_demo()
+    sys.exit(main())

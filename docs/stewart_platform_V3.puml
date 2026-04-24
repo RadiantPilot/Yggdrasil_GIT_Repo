@@ -1,0 +1,868 @@
+@startuml StewartPlatformControlSystem_V3
+
+title Stewart Platform Control System — V3 (Domene + GUI)
+footer Objektorientert Python-design | Raspberry Pi 4B | 6-DOF | PySide6 GUI
+
+' ── Stil ───────────────────────────────────────────────────
+skinparam classAttributeIconSize 0
+skinparam classFontSize    11
+skinparam packageFontSize  13
+skinparam packageStyle     rectangle
+skinparam linetype         ortho
+skinparam nodesep          55
+skinparam ranksep          50
+skinparam shadowing        false
+
+skinparam class {
+    BackgroundColor   White
+    BorderColor       #444444
+    ArrowColor        #666666
+    FontColor         #222222
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 1 — DOMENEKONFIGURASJON
+' ════════════════════════════════════════════════════════════
+package "config" #E8F5E9 {
+
+    enum Axis <<IntEnum>> {
+        X = 0
+        Y = 1
+        Z = 2
+        ROLL = 3
+        PITCH = 4
+        YAW = 5
+    }
+
+    class ServoConfig <<dataclass>> {
+        + channel : int = 0
+        + min_pulse_us / max_pulse_us : int
+        + min_angle_deg / max_angle_deg : float
+        + home_angle_deg : float = 90.0
+        + direction : int = 1
+        + offset_deg : float = 0.0
+        + mounting_angle_deg : float = 0.0
+    }
+
+    class PIDGains <<dataclass>> {
+        + kp / ki / kd : float
+        + output_min / output_max : float
+        + integral_limit : float = 100.0
+    }
+
+    class SafetyConfig <<dataclass>> {
+        + max_translation_mm : float = 50.0
+        + max_rotation_deg : float = 30.0
+        + max_velocity_mm_per_s : float
+        + max_angular_velocity_deg_per_s : float
+        + servo_angle_margin_deg : float
+        + watchdog_timeout_s : float = 1.0
+        + imu_fault_threshold_g : float = 4.0
+    }
+
+    class PlatformConfig <<dataclass>> {
+        .. I2C-adresser ..
+        + i2c_bus_number : int = 1
+        + pca9685_address : int = 0x40
+        + pca9685_frequency : int = 50
+        + lsm6dsox_address : int = 0x6A
+        .. Geometri ..
+        + base_radius / platform_radius : float
+        + base_joint_angles : list[float]
+        + platform_joint_angles : list[float]
+        + servo_horn_length / rod_length : float
+        + home_height : float = 120.0
+        .. Komposisjon ..
+        + servo_configs : list[ServoConfig]
+        + pid_gains : PIDGains
+        + safety_config : SafetyConfig
+        + control_loop_rate_hz : float = 50.0
+        --
+        + {static} load(filepath: str) : PlatformConfig
+        + save(filepath: str) : None
+        + validate() : list[str]
+        + raise_if_invalid() : None
+    }
+
+    PlatformConfig "1" *-r- "6" ServoConfig
+    PlatformConfig "1" *-l- "1" PIDGains
+    PlatformConfig "1" *-l- "1" SafetyConfig
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 2 VENSTRE — GEOMETRI
+' ════════════════════════════════════════════════════════════
+package "geometry" #FFF3E0 {
+
+    class Vector3 {
+        + x : float
+        + y : float
+        + z : float
+        --
+        + __add__(other: Vector3) : Vector3
+        + __sub__(other: Vector3) : Vector3
+        + __mul__(scalar: float) : Vector3
+        + __neg__() : Vector3
+        + magnitude() : float
+        + normalized() : Vector3
+        + dot(other: Vector3) : float
+        + cross(other: Vector3) : Vector3
+        + to_array() : np.ndarray
+        + {static} from_array(arr: np.ndarray) : Vector3
+    }
+
+    class Pose {
+        + translation : Vector3
+        + rotation : Vector3
+        --
+        + to_matrix() : np.ndarray
+        + {static} from_matrix(m: np.ndarray) : Pose
+        + interpolate(other: Pose, t: float) : Pose
+        + is_within_bounds(max_trans: float, max_rot: float) : bool
+        + {static} home() : Pose
+    }
+
+    class PlatformGeometry {
+        - _base_radius : float
+        - _platform_radius : float
+        - _base_joint_angles : list[float]
+        - _platform_joint_angles : list[float]
+        - _servo_horn_length : float
+        - _rod_length : float
+        - _home_height : float
+        - _base_joints : list[Vector3]
+        - _platform_joints_local : list[Vector3]
+        --
+        + __init__(config: PlatformConfig)
+        + get_base_joints() : list[Vector3]
+        + get_platform_joints_local() : list[Vector3]
+        + get_platform_joints_world(pose: Pose) : list[Vector3]
+        + get_leg_vectors(pose: Pose) : list[Vector3]
+        + get_leg_lengths(pose: Pose) : list[float]
+        + compute_home_height() : float
+    }
+
+    Pose -r-> Vector3 : translation,\nrotation
+    PlatformGeometry --> Pose
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 2 HOYRE — MASKINVARE
+' ════════════════════════════════════════════════════════════
+package "hardware" #E3F2FD {
+
+    class I2CBus {
+        - _bus_number : int
+        - _bus : smbus2.SMBus
+        --
+        + read_byte_data(addr, reg) : int
+        + write_byte_data(addr, reg, val) : None
+        + read_block_data(addr, reg, len) : list[int]
+        + write_block_data(addr, reg, data) : None
+        + close() : None
+    }
+
+    class PCA9685Driver {
+        - _bus : I2CBus
+        - _address : int
+        - _frequency : int
+        --
+        + reset() : None
+        + set_frequency(freq_hz: int) : None
+        + set_pwm(channel, on, off) : None
+        + set_pulse_width_us(channel, pulse_us) : None
+        + set_all_pwm(on, off) : None
+        + sleep() / wake() : None
+    }
+
+    interface IMUInterface <<abstract>> {
+        + {abstract} configure(**kwargs) : None
+        + {abstract} read_acceleration() : Vector3
+        + {abstract} read_angular_velocity() : Vector3
+        + {abstract} read_temperature() : float
+        + {abstract} who_am_i() : int
+        + {abstract} reset() : None
+        + {abstract} calibrate_gyro_bias() : None
+        + {abstract} calibrate_accelerometer_offset() : None
+    }
+
+    class LSM6DSOXDriver {
+        - _bus : I2CBus
+        - _address : int
+        - _accel_range : AccelRange
+        - _gyro_range : GyroRange
+        - _data_rate : DataRate
+        --
+        + configure(accel_range, gyro_range, data_rate) : None
+        .. implementerer IMUInterface ..
+    }
+
+    enum AccelRange {
+        G2 .. G16
+    }
+
+    enum GyroRange {
+        DPS125 .. DPS2000
+    }
+
+    enum DataRate {
+        ODR_12_5_HZ .. ODR_833_HZ
+    }
+
+    IMUInterface <|.. LSM6DSOXDriver
+
+    PCA9685Driver -u-> I2CBus
+    LSM6DSOXDriver -u-> I2CBus
+
+    LSM6DSOXDriver .r.> AccelRange
+    LSM6DSOXDriver .r.> GyroRange
+    LSM6DSOXDriver .r.> DataRate
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 3 VENSTRE — INVERS KINEMATIKK
+' ════════════════════════════════════════════════════════════
+package "kinematics" #FFFDE7 {
+
+    class InverseKinematics {
+        - _geometry : PlatformGeometry
+        - _servo_configs : list[ServoConfig]
+        --
+        + __init__(geometry: PlatformGeometry, servo_configs: list[ServoConfig])
+        + solve(pose: Pose) : list[float]
+        - _compute_leg_lengths(pose: Pose) : list[float]
+        - _leg_length_to_servo_angle(leg: Vector3, idx: int) : float
+        + is_pose_reachable(pose: Pose) : bool
+        + get_workspace_bounds() : tuple[Pose, Pose]
+    }
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 3 HOYRE — SERVO-STYRING
+' ════════════════════════════════════════════════════════════
+package "servo" #F3E5F5 {
+
+    class Servo {
+        - _config : ServoConfig
+        - _driver : PCA9685Driver
+        - _current_angle_deg : float
+        --
+        + __init__(config: ServoConfig, driver: PCA9685Driver)
+        + set_angle(angle_deg: float) : None
+        + get_angle() : float
+        + angle_to_pulse_us(angle_deg: float) : int
+        + is_within_limits(angle_deg: float) : bool
+        + go_home() : None
+        + detach() : None
+    }
+
+    class ServoArray {
+        - _driver : PCA9685Driver
+        - _servos : list[Servo]
+        --
+        + __init__(configs: list[ServoConfig], driver: PCA9685Driver)
+        + set_angles(angles: list[float]) : None
+        + get_angles() : list[float]
+        + go_home() : None
+        + detach_all() : None
+        + validate_angles(angles: list[float]) : bool
+        + __getitem__(index: int) : Servo
+    }
+
+    ServoArray "1" *-d- "6" Servo
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 4 VENSTRE — SIKKERHET
+' ════════════════════════════════════════════════════════════
+package "safety" #FFEBEE {
+
+    enum SafetySeverity {
+        WARNING = "warning"
+        ERROR = "error"
+        CRITICAL = "critical"
+    }
+
+    class SafetyCheckResult <<dataclass>> {
+        + is_safe : bool = True
+        + violations : list[str]
+        + severity : SafetySeverity
+    }
+
+    class SafetyMonitor {
+        - _config : SafetyConfig
+        - _servo_configs : list[ServoConfig]
+        - _last_pose : Pose
+        - _last_time : float
+        - _emergency_stopped : bool
+        - _e_stop_reason : Optional[str]
+        - _check_history : deque[SafetyCheckResult]
+        --
+        + __init__(config: SafetyConfig, servo_configs: list[ServoConfig])
+        + validate_pose(pose: Pose) : bool
+        + validate_servo_angles(angles: list[float]) : bool
+        + validate_velocity(current: Pose, prev: Pose, dt: float) : bool
+        + validate_imu_readings(accel: Vector3) : bool
+        + trigger_e_stop(reason: str = "") : None
+        + reset_latched_faults() : bool
+        + is_e_stopped() : bool
+        + e_stop_reason : Optional[str]
+        + get_limits() : SafetyConfig
+        + set_limits(config: SafetyConfig) : None
+        + get_check_results() : list[SafetyCheckResult]
+        + check_all(pose, angles, accel, dt) : SafetyCheckResult
+    }
+
+    SafetyMonitor -r-> SafetyCheckResult : produserer
+    SafetyCheckResult -r-> SafetySeverity
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 4 HOYRE — REGULERING OG KONTROLL
+' ════════════════════════════════════════════════════════════
+package "control" #E0F7FA {
+
+    class PIDController {
+        - _gains : PIDGains
+        - _integral : float
+        - _previous_error : float
+        - _previous_time : float
+        --
+        + __init__(gains: PIDGains)
+        + update(setpoint: float, measurement: float, dt: float) : float
+        + reset() : None
+        + set_gains(gains: PIDGains) : None
+    }
+
+    class IMUFusion {
+        - _alpha : float
+        - _current_orientation : Vector3
+        - _last_time : float
+        --
+        + __init__(alpha: float = 0.98)
+        + update(accel: Vector3, gyro: Vector3, dt: float) : Vector3
+        + get_orientation() : Vector3
+        + reset() : None
+    }
+
+    class StepResponseRecorder {
+        + axis : Axis
+        + from_val : float
+        + to_val : float
+        + is_active : bool
+        + samples : list[tuple[float, float, float]]
+        --
+        + __init__(axis: Axis, from_val: float, to_val: float)
+        + record(timestamp, setpoint, actual) : None
+        + finish() : None
+    }
+
+    class PoseController {
+        - _controllers : list[PIDController]
+        - _step_recorders : dict[Axis, StepResponseRecorder]
+        - _response_listeners : list[ResponseListener]
+        --
+        + __init__(gains: PIDGains)
+        + update(target: Pose, current: Pose, dt: float) : Pose
+        + reset() : None
+        + get_pid_gains(axis: Axis) : PIDGains
+        + set_pid_gains(axis: Axis, gains: PIDGains) : None
+        + set_gains(gains: PIDGains) : None
+        + trigger_step_response(axis, from_val, to_val) : StepResponseRecorder
+        + get_step_response_recorder(axis) : Optional[StepResponseRecorder]
+        + add_response_listener(cb: ResponseListener) : None
+        + remove_response_listener(cb: ResponseListener) : None
+    }
+
+    class MotionController {
+        - _config : PlatformConfig
+        - _servo_array : ServoArray
+        - _base_imu : IMUInterface
+        - _ik_solver : InverseKinematics
+        - _pose_controller : PoseController
+        - _imu_fusion : IMUFusion
+        - _safety_monitor : SafetyMonitor
+        - _target_pose : Pose
+        - _current_pose : Pose
+        - _running : bool
+        - _loop_rate_hz : float
+        --
+        + __init__(config: PlatformConfig)
+        + initialize() : None
+        + set_target_pose(pose: Pose) : bool
+        + home() : None
+        + start() : None
+        + stop() : None
+        + emergency_stop() : None
+        + step() : None
+        + target_pose : Pose
+        + pose_controller : PoseController | None
+        + safety_monitor : SafetyMonitor | None
+        + imu_fusion : IMUFusion | None
+        + base_imu : IMUInterface | None
+        + servo_array : ServoArray | None
+        + get_current_pose() : Pose
+        + get_servo_angles() : list[float]
+        + is_running() : bool
+        + shutdown() : None
+    }
+
+    PoseController "1" *-- "6" PIDController : en per DOF
+    PoseController "1" *-- "*" StepResponseRecorder : per aktiv step-test
+    MotionController --> PoseController
+    MotionController --> IMUFusion
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 5 — GUI: BRIDGE (eneste tilkoblingspunkt mot domene)
+' ════════════════════════════════════════════════════════════
+package "gui.bridge" #EDE7F6 {
+
+    class StateSnapshot <<dataclass, frozen>> {
+        + timestamp : float
+        + loop_frequency_hz : float
+        + is_running : bool
+        + is_e_stopped : bool
+        + e_stop_reason : Optional[str]
+        + current_pose : Pose
+        + target_pose : Pose
+        + servo_angles : list[float]
+        + imu_acceleration : Vector3
+        + imu_angular_velocity : Vector3
+        + imu_orientation : tuple[float, float, float]
+        + pid_gains : dict[Axis, PIDGains]
+        + pid_errors : dict[Axis, float]
+        + latest_safety_result : Optional[SafetyCheckResult]
+        + safety_results : list[SafetyCheckResult]
+    }
+
+    class BridgeEvent <<dataclass>> {
+        + timestamp : float
+        + level : str
+        + message : str
+    }
+
+    enum CalibrationResult {
+        OK
+        NOT_READY
+        NOT_IMPL
+        FAILED
+    }
+
+    class ControllerBridge <<QObject>> {
+        - _config_path : Path
+        - _mock : bool
+        - _controller : MotionController | None
+        - _config : PlatformConfig | None
+        - _events : deque[BridgeEvent]
+        - _mock_running / _mock_e_stopped : bool
+        - _mock_target_pose : Pose
+        - _mock_pid_gains : dict[Axis, PIDGains]
+        .. Qt-signaler ..
+        + target_pose_changed : Signal(Pose)
+        + pid_gains_changed : Signal(Axis, PIDGains)
+        + safety_fault : Signal(SafetyCheckResult)
+        + config_changed : Signal(PlatformConfig)
+        --
+        + __init__(config_path: Path, mock: bool = False)
+        + initialize() : None
+        + shutdown() : None
+        + is_mock : bool
+        + config : PlatformConfig
+        + get_snapshot() : StateSnapshot
+        + request_start() / request_stop() / request_home() : None
+        + set_target_pose(pose: Pose) : bool
+        + set_pid_gains(axis: Axis, gains: PIDGains) : bool
+        + trigger_e_stop(reason: str = "") : None
+        + reset_latched_faults() : bool
+        + update_config(config: PlatformConfig) : list[str]
+        + save_config() : bool
+        + update_safety_limits(cfg: SafetyConfig) : None
+        + calibrate_gyro() : CalibrationResult
+        + calibrate_accelerometer() : CalibrationResult
+        + get_events() : list[BridgeEvent]
+    }
+
+    class PollingWorker <<QObject>> {
+        - _bridge : ControllerBridge
+        - _rate_hz : float
+        - _stop : bool
+        .. Qt-signaler ..
+        + snapshot_ready : Signal(StateSnapshot)
+        --
+        + __init__(bridge: ControllerBridge, rate_hz: float = 30.0)
+        + run() : None
+        + stop() : None
+    }
+
+    ControllerBridge "1" *-- "*" BridgeEvent : hendelseslogg
+    ControllerBridge ..> StateSnapshot : bygger
+    ControllerBridge ..> CalibrationResult : returnerer
+    PollingWorker --> ControllerBridge
+    PollingWorker ..> StateSnapshot : emitterer
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 6 — GUI: TABS (en per funksjonsomraade)
+' ════════════════════════════════════════════════════════════
+package "gui.tabs" #E1F5FE {
+
+    abstract class BaseTab <<QWidget>> {
+        # _bridge : ControllerBridge
+        # _live : QLabel
+        --
+        + {static} TITLE : str
+        + __init__(bridge: ControllerBridge)
+        + update_from_snapshot(snapshot: StateSnapshot) : None
+    }
+
+    class OverviewTab <<QWidget>> {
+        - _banner : StatusBanner
+        - _pose_labels : list[tuple[QLabel, QLabel]]
+        - _imu_labels : dict[str, QLabel]
+        - _servo_bars : ServoBars
+        - _event_log : EventLog
+        --
+        + update_from_snapshot(snapshot) : None
+    }
+
+    class PoseControlTab <<QWidget>> {
+        - _sliders : PoseSliders
+        - _current_labels : dict[str, QLabel]
+        --
+        + update_from_snapshot(snapshot) : None
+        - _on_pose_changed(values: dict) : None
+        - _preset_home / _preset_flat / ... : None
+    }
+
+    class PidTuningTab <<QWidget>> {
+        - _cards : dict[Axis, PidCard]
+        - _response_plot : ResponsePlot
+        - _error_plot : RealtimePlot
+        --
+        + update_from_snapshot(snapshot) : None
+        - _on_gains_changed(axis: Axis, gains: PIDGains) : None
+    }
+
+    class ImuTab <<QWidget>> {
+        - _accel_plot : RealtimePlot
+        - _gyro_plot : RealtimePlot
+        - _ori_plot : RealtimePlot
+        - _info_labels : dict[str, QLabel]
+        --
+        + update_from_snapshot(snapshot) : None
+        - _calibrate_gyro() / _calibrate_accel() : None
+    }
+
+    class ConfigTab <<QWidget>> {
+        - _geo_spins : dict[str, QDoubleSpinBox]
+        - _i2c_spins : dict[str, QSpinBox]
+        - _servo_table : QTableWidget
+        --
+        + update_from_snapshot(snapshot) : None
+        - _apply_config() : None
+        - _save_config() : None
+    }
+
+    class SafetyTab <<QWidget>> {
+        - _estop_banner : QLabel
+        - _lamps : dict[str, IndicatorLamp]
+        - _limit_spins : dict[str, QDoubleSpinBox]
+        - _event_log : EventLog
+        --
+        + update_from_snapshot(snapshot) : None
+        - _trigger_estop() / _reset_estop() : None
+    }
+
+    BaseTab <|-- OverviewTab
+    BaseTab <|-- PoseControlTab
+    BaseTab <|-- PidTuningTab
+    BaseTab <|-- ImuTab
+    BaseTab <|-- ConfigTab
+    BaseTab <|-- SafetyTab
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 7 — GUI: WIDGETS (gjenbrukbare komponenter)
+' ════════════════════════════════════════════════════════════
+package "gui.widgets" #FFF8E1 {
+
+    class StatusBanner <<QWidget>> {
+        - _icon : QLabel
+        - _title : QLabel
+        - _subtitle : QLabel
+        --
+        + set_status(status: str, title: str, subtitle: str) : None
+    }
+
+    class _LedDot <<QWidget>> {
+        - _color : str
+        - _on : bool
+        --
+        + set_state(on: bool, color: str | None = None) : None
+        + paintEvent(event) : None
+    }
+
+    class IndicatorLamp <<QWidget>> {
+        - _dot : _LedDot
+        - _label : QLabel
+        --
+        + set_state(on: bool, color: str | None = None) : None
+        + set_label(text: str) : None
+    }
+
+    class Event <<dataclass>> {
+        + timestamp : float
+        + level : str
+        + message : str
+    }
+
+    class EventLog <<QWidget>> {
+        - _events : deque[Event]
+        --
+        + add_event(level: str, message: str) : None
+        - _rebuild() : None
+    }
+
+    class ServoBars <<QWidget>> {
+        - _min : float
+        - _max : float
+        - _bars : list[QProgressBar]
+        - _labels : list[QLabel]
+        --
+        + update_angles(angles: list[float]) : None
+    }
+
+    class PoseSliders <<QWidget>> {
+        - _sliders : dict[str, QSlider]
+        - _spins : dict[str, QDoubleSpinBox]
+        .. Qt-signaler ..
+        + pose_changed : Signal(dict)
+        --
+        + get_values() : dict[str, float]
+        + update_current(x, y, z, roll, pitch, yaw) : None
+        + reset_to_home() : None
+        + set_target_values(...) : None
+    }
+
+    class PidCard <<QWidget>> {
+        - _kp / _ki / _kd : QSlider + QDoubleSpinBox
+        - _error_label : QLabel
+        .. Qt-signaler ..
+        + gains_changed : Signal(PIDGains)
+        --
+        + set_gains(gains: PIDGains) : None
+        + get_gains() : PIDGains
+        + set_error(err: float) : None
+    }
+
+    class RealtimePlot <<pg.PlotWidget>> {
+        - _series : list[pg.PlotDataItem]
+        - _buffers : list[RingBuffer]
+        - _window_size : int
+        --
+        + append_values(values: list[float]) : None
+        + refresh() : None
+        + clear_data() : None
+        + set_series_visible(index: int, visible: bool) : None
+        + set_window_size(size: int) : None
+        + series_names : list[str]
+        - _apply_theme(theme: Theme) : None
+    }
+
+    class ResponsePlot <<pg.PlotWidget>> {
+        - _setpoint_curve : pg.PlotDataItem
+        - _actual_curve : pg.PlotDataItem
+        - _metrics_text : pg.TextItem
+        --
+        + set_data(t, setpoint, actual) : None
+        + clear_data() : None
+        - _update_metrics(...) : None
+        - _apply_theme(theme: Theme) : None
+    }
+
+    IndicatorLamp *-- _LedDot
+    EventLog "1" *-- "*" Event
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 8 — GUI: UTILS (hjelpe-klasser)
+' ════════════════════════════════════════════════════════════
+package "gui.utils" #F9FBE7 {
+
+    class Theme <<dataclass, frozen>> {
+        + name : str
+        + window_bg / window_fg : str
+        + base_bg / alternate_bg : str
+        + tooltip_bg / tooltip_fg : str
+        + button_bg / button_fg : str
+        + highlight / highlight_fg : str
+        + border / muted_fg : str
+        + plot_bg / plot_fg / plot_axis : str
+        + grid_alpha : float
+    }
+
+    class ThemeManager <<QObject, singleton>> {
+        - {static} _instance : ThemeManager | None
+        - _current : Theme
+        .. Qt-signaler ..
+        + theme_changed : Signal(Theme)
+        --
+        + {static} instance() : ThemeManager
+        + current : Theme
+        + apply(theme: Theme) : None
+        + toggle() : Theme
+    }
+
+    class RingBuffer {
+        - _capacity : int
+        - _data : np.ndarray
+        - _index : int
+        - _count : int
+        --
+        + __init__(capacity: int, channels: int = 1)
+        + capacity : int
+        + count : int
+        + append(values) : None
+        + get_data() : np.ndarray
+        + get_channel(ch: int) : np.ndarray
+        + clear() : None
+    }
+
+    class "<<module>>\nformatting" as formatting {
+        + fmt_mm(v, decimals=2) : str
+        + fmt_deg(v, decimals=2) : str
+        + fmt_accel(v) : str
+        + fmt_gyro(v) : str
+        + fmt_hz(v) : str
+        + fmt_time(seconds) : str
+    }
+
+    ThemeManager --> Theme
+}
+
+' ════════════════════════════════════════════════════════════
+' LAG 9 — GUI: APP (rot, vindu, innstegspunkt)
+' ════════════════════════════════════════════════════════════
+package "gui" #F3E5F5 {
+
+    class MainWindow <<QMainWindow>> {
+        - _bridge : ControllerBridge
+        - _tabs : QTabWidget
+        - _tab_overview : OverviewTab
+        - _tab_pose : PoseControlTab
+        - _tab_pid : PidTuningTab
+        - _tab_imu : ImuTab
+        - _tab_config : ConfigTab
+        - _tab_safety : SafetyTab
+        - _btn_start / _btn_stop / _btn_home : QPushButton
+        - _btn_estop / _btn_theme : QPushButton
+        - _lbl_mode / _lbl_rate : QLabel
+        --
+        + __init__(bridge: ControllerBridge)
+        + on_snapshot(snapshot: StateSnapshot) : None
+        - _on_start_clicked() / _on_stop_clicked() : None
+        - _on_home_clicked() / _on_estop_clicked() : None
+        - _on_theme_toggle() : None
+        - _on_tab_changed(index: int) : None
+    }
+
+    class "<<module>>\napp" as app_module {
+        + main() : int
+        - _parse_args() : argparse.Namespace
+    }
+
+    MainWindow "1" *-- "6" BaseTab : via QTabWidget
+    app_module ..> MainWindow : oppretter
+    app_module ..> ControllerBridge : oppretter
+    app_module ..> PollingWorker : oppretter
+    app_module ..> ThemeManager : bruker
+}
+
+' ════════════════════════════════════════════════════════════
+' RELASJONER MELLOM PAKKER (domene)
+' ════════════════════════════════════════════════════════════
+
+PlatformGeometry ..> PlatformConfig
+
+InverseKinematics --> PlatformGeometry
+Servo ..> ServoConfig
+Servo ..> PCA9685Driver
+
+MotionController --> InverseKinematics
+MotionController --> ServoArray
+MotionController --> SafetyMonitor
+MotionController --> IMUInterface
+MotionController ..> PlatformConfig
+
+SafetyMonitor ..> SafetyConfig
+PIDController ..> PIDGains
+PoseController ..> Axis
+PoseController ..> PIDGains
+
+' ════════════════════════════════════════════════════════════
+' RELASJONER GUI → DOMENE (kun via ControllerBridge)
+' GUI-widgets snakker ALDRI direkte med control/, safety/ eller
+' hardware/. StateSnapshot kapsler all lesetilstand.
+' ════════════════════════════════════════════════════════════
+
+ControllerBridge --> MotionController : eier (ikke-mock)
+ControllerBridge ..> PlatformConfig
+ControllerBridge ..> PIDGains
+ControllerBridge ..> SafetyConfig
+ControllerBridge ..> Pose
+ControllerBridge ..> Axis
+
+StateSnapshot ..> Pose
+StateSnapshot ..> Vector3
+StateSnapshot ..> PIDGains
+StateSnapshot ..> Axis
+StateSnapshot ..> SafetyCheckResult
+
+MainWindow --> ControllerBridge
+BaseTab --> ControllerBridge
+BaseTab ..> StateSnapshot
+
+OverviewTab ..> StatusBanner
+OverviewTab ..> ServoBars
+OverviewTab ..> EventLog
+PoseControlTab ..> PoseSliders
+PidTuningTab ..> PidCard
+PidTuningTab ..> ResponsePlot
+PidTuningTab ..> RealtimePlot
+ImuTab ..> RealtimePlot
+SafetyTab ..> IndicatorLamp
+SafetyTab ..> EventLog
+
+RealtimePlot --> RingBuffer
+RealtimePlot ..> ThemeManager
+ResponsePlot ..> ThemeManager
+
+PidCard ..> PIDGains
+PoseSliders ..> Pose
+
+' ════════════════════════════════════════════════════════════
+' SKJULTE LENKER FOR LAYOUT
+' ════════════════════════════════════════════════════════════
+
+' Domene-rader
+geometry -[hidden]r- hardware
+kinematics -[hidden]r- servo
+safety -[hidden]r- control
+config -[hidden]d- geometry
+config -[hidden]d- hardware
+geometry -[hidden]d- kinematics
+hardware -[hidden]d- servo
+kinematics -[hidden]d- safety
+servo -[hidden]d- control
+
+' GUI-rader (bridge oeverst, app nederst)
+control -[hidden]d- "gui.bridge"
+safety -[hidden]d- "gui.bridge"
+"gui.bridge" -[hidden]d- "gui.tabs"
+"gui.tabs" -[hidden]r- "gui.widgets"
+"gui.widgets" -[hidden]d- "gui.utils"
+"gui.tabs" -[hidden]d- "gui"
+"gui.utils" -[hidden]d- "gui"
+
+@enduml

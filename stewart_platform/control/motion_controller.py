@@ -104,7 +104,7 @@ class MotionController:
         # Gå til hjemmeposisjon
         self._servo_array.go_home()
 
-    def set_target_pose(self, pose: Pose) -> None:
+    def set_target_pose(self, pose: Pose) -> bool:
         """Sett ønsket mål-pose for plattformen.
 
         Mål-posen brukes av PoseController som setpunkt.
@@ -113,13 +113,24 @@ class MotionController:
         Args:
             pose: Ønsket 6-DOF pose (translasjon + rotasjon).
 
-        Raises:
-            ValueError: Hvis posen er utenfor tillatte sikkerhetsgrenser.
+        Returns:
+            True hvis posen ble akseptert, False hvis den ble avvist.
         """
         if self._safety_monitor is not None:
             if not self._safety_monitor.validate_pose(pose):
-                raise ValueError("Mål-pose er utenfor tillatte sikkerhetsgrenser.")
+                return False
         self._target_pose = pose
+        return True
+
+    def home(self) -> None:
+        """Flytt plattformen til hjemmeposisjon.
+
+        Resetter mål-pose til home og delegerer til
+        ServoArray.go_home() for å flytte servoene.
+        """
+        self._target_pose = Pose.home()
+        if self._servo_array is not None:
+            self._servo_array.go_home()
 
     def start(self) -> None:
         """Start kontrollsløyfen i en egen tråd.
@@ -151,7 +162,7 @@ class MotionController:
         """
         self._running = False
         if self._safety_monitor is not None:
-            self._safety_monitor.trigger_emergency_stop()
+            self._safety_monitor.trigger_e_stop("Nødstopp fra MotionController")
         if self._servo_array is not None:
             self._servo_array.detach_all()
 
@@ -176,7 +187,7 @@ class MotionController:
         # 1-2: Les bunnplate-IMU og oppdater fusjon
         if self._base_imu is not None and self._imu_fusion is not None:
             accel = self._base_imu.read_acceleration()
-            gyro = self._base_imu.read_gyroscope()
+            gyro = self._base_imu.read_angular_velocity()
             base_orientation = self._imu_fusion.update(accel, gyro, dt)
             self._current_pose = Pose(rotation=base_orientation)
         else:

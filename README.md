@@ -32,7 +32,7 @@ stewart_platform/
   kinematics/      Invers kinematikk (pose -> servovinkler)
   control/         PID-regulering, sensorfusjon, kontrollslyfe
   safety/          Sikkerhetsvalidering og nodstopp
-  gui/             Grafisk brukergrensesnitt (CustomTkinter + matplotlib)
+  gui/             Grafisk brukergrensesnitt (PySide6 + pyqtgraph)
 ```
 
 ### Kontrollslyfe
@@ -62,9 +62,9 @@ IMU-data -> IMUFusion -> PoseController (PID) -> InverseKinematics -> SafetyMoni
 |-------|------|
 | `numpy` | Matematikk og lineaer algebra |
 | `pyyaml` | YAML-konfigurasjonsfiler |
-| `smbus2` | I2C-kommunikasjon (Raspberry Pi) |
-| `customtkinter` | Moderne GUI (mork tema, avrundede widgets) |
-| `matplotlib` | 3D-visualisering av plattformen |
+| `PySide6` | Qt6-basert GUI-rammeverk |
+| `pyqtgraph` | Sanntidsplot og responsgrafer i GUI-et |
+| `smbus2` | I2C-kommunikasjon (kun pa Raspberry Pi) |
 
 ### Oppsett
 
@@ -73,8 +73,11 @@ IMU-data -> IMUFusion -> PoseController (PID) -> InverseKinematics -> SafetyMoni
 git clone <repo-url>
 cd Yggdrasil_GIT_Repo
 
-# Installer avhengigheter
-pip install numpy pyyaml smbus2 customtkinter matplotlib
+# Installer GUI- og kjerneavhengigheter
+pip install -r requirements-gui.txt
+
+# Pa Raspberry Pi, i tillegg, for faktisk maskinvare-styring:
+pip install smbus2
 
 # Installer som utviklingspakke (valgfritt)
 pip install -e .
@@ -201,41 +204,74 @@ controller.shutdown()
 
 ## GUI
 
-Plattformen har et grafisk brukergrensesnitt bygget med CustomTkinter og matplotlib.
+Plattformen har et grafisk brukergrensesnitt bygget med PySide6 (Qt6) og pyqtgraph.
 
 ### Start GUI
 
 ```bash
-# Demo-modus (uten maskinvare — for utvikling og testing pa PC)
+# Kobler til ekte maskinvare (standard)
 python -m stewart_platform.gui
+
+# Simulert modus uten maskinvare — for utvikling og testing pa PC
+python -m stewart_platform.gui --mock
+
+# Alternativ konfigurasjonsfil
+python -m stewart_platform.gui --config config/min_config.yaml
+
+# Polling-rate for GUI-oppdatering (default 30 Hz)
+python -m stewart_platform.gui --rate 60
+
+# Lyst eller morkt tema
+python -m stewart_platform.gui --theme dark
 ```
 
 ### Funksjoner
 
-- **Tilt-styring**: Interaktiv sirkel for roll/pitch-kontroll. To modi:
-  - *Live*: Klikk og dra for a styre plattformen i sanntid
-  - *Visning*: Skrivebeskyttet kryss som viser faktisk orientering
-- **3D-visning**: Live matplotlib-modell av plattformen (bunnplate, toppplate, 6 bein)
-- **IMU-panel**: Sammenligning av faktisk (ekstern IMU) og estimert (RPi-fusjon) orientering
-- **Sikkerhetsbar**: Permanent NODSTOPP-knapp og sikkerhetsstatus nederst i vinduet
-- **Servokontroll**: Popup for direkte servostyring (testing/kalibrering)
-- **Innstillinger**: Popup med PID-tuning, sikkerhetsgrenser, og konfigurasjon (YAML lagre/last)
+GUI-et er organisert i 6 faner:
 
-### Koble til maskinvare
+- **Oversikt**: Sanntidsstatus for pose, servovinkler, IMU-data og sikkerhet samlet pa en skjerm
+- **Pose**: Sliders for mal-pose (X, Y, Z, roll, pitch, yaw) med live tilbakemelding
+- **PID**: PID-tuning i sanntid med responsplot per frihetsgrad
+- **IMU**: Detaljert IMU-visning med sammenligning av faktisk vs. estimert orientering
+- **Konfig**: Last og lagre YAML-konfigurasjon, juster parametere i kjoring
+- **Sikkerhet**: Sikkerhetsstatus, nodstopp-knapp og hendelseslogg
+
+Global toolbar pa toppen har Start, Stopp, Home og E-STOP tilgjengelig fra alle faner.
+
+### Egen GUI-oppstart (programmatisk)
+
+`python -m stewart_platform.gui` er normal inngangsport. Hvis du vil starte GUI-et
+fra egen kode (for eksempel for a integrere det i en storre applikasjon), speiler
+eksempelet under det som skjer internt i [stewart_platform/gui/app.py](stewart_platform/gui/app.py):
 
 ```python
-from stewart_platform.config import PlatformConfig
-from stewart_platform.control import MotionController
-from stewart_platform.geometry.platform_geometry import PlatformGeometry
-from stewart_platform.gui.app import StewartPlatformApp
+import sys
+from pathlib import Path
 
-config = PlatformConfig.load("config/default_config.yaml")
-controller = MotionController(config)
-controller.initialize()
-geometry = PlatformGeometry(config)
+from PySide6.QtCore import QThread, Qt
+from PySide6.QtWidgets import QApplication
 
-app = StewartPlatformApp(config=config, controller=controller, geometry=geometry)
-app.mainloop()
+from stewart_platform.gui.bridge.controller_bridge import ControllerBridge
+from stewart_platform.gui.bridge.polling_worker import PollingWorker
+from stewart_platform.gui.main_window import MainWindow
+
+app = QApplication(sys.argv)
+
+# mock=True for simulert modus, mock=False for ekte hardware
+bridge = ControllerBridge(config_path=Path("config/default_config.yaml"), mock=False)
+bridge.initialize()
+
+worker_thread = QThread()
+worker = PollingWorker(bridge, rate_hz=30.0)
+worker.moveToThread(worker_thread)
+worker_thread.started.connect(worker.run)
+
+window = MainWindow(bridge)
+worker.snapshot_ready.connect(window.on_snapshot, Qt.QueuedConnection)
+window.show()
+worker_thread.start()
+
+sys.exit(app.exec())
 ```
 
 ## Testing
@@ -257,7 +293,10 @@ Yggdrasil_GIT_Repo/
   config/
     default_config.yaml          Standard konfigurasjon (YAML)
   docs/
-    stewart_platform.puml        UML-klassediagram (PlantUML)
+    GUI_PLAN.md                  Detaljert GUI-implementasjonsplan
+    stewart_platform_V1.puml     UML (tidlig versjon)
+    stewart_platform_V2.puml     UML (mellomversjon)
+    stewart_platform_V3.puml     UML-klassediagram (nyeste)
   stewart_platform/
     __init__.py
     config/
@@ -285,26 +324,39 @@ Yggdrasil_GIT_Repo/
       safety_monitor.py          SafetyMonitor, SafetyCheckResult, SafetySeverity
     gui/
       __main__.py                Startpunkt: python -m stewart_platform.gui
-      app.py                     Hovedvindu (CTk), faner, mainloop
-      data_bridge.py             Tradsikker bro mellom GUI og kontrolltrad
-      theme.py                   Farger, fonter, storrelser
-      views/
-        tilt_control.py          Fane 1: Interaktiv tilt-sirkel
-        platform_3d.py           Fane 2: Matplotlib 3D-visning
-      components/
-        top_bar.py               Tilstand, start/stopp, menyknapper
-        safety_bar.py            NODSTOPP og sikkerhetsstatus
-        imu_panel.py             IMU-sammenligning (faktisk vs. estimert)
-      popups/
-        servo_menu.py            Direkte servostyring (testing)
-        settings_window.py       PID, sikkerhet, konfigurasjon
+      app.py                     QApplication-oppsett, argparse, main()
+      main_window.py             QMainWindow med QTabWidget (6 faner)
+      bridge/
+        controller_bridge.py     Tradsikker bro mellom GUI og MotionController
+        polling_worker.py        QThread-worker som henter snapshots
+        state_snapshot.py        Dataclass med samlet GUI-tilstand
+      tabs/
+        base_tab.py              Felles basis for alle faner
+        overview_tab.py          Oversikt: pose, servo, IMU, sikkerhet
+        pose_control_tab.py      Mal-pose-sliders (6-DOF)
+        pid_tuning_tab.py        PID-tuning med responsplot
+        imu_tab.py               IMU-data og fusjonsvisning
+        config_tab.py            Last/lagre YAML, juster parametere
+        safety_tab.py            Sikkerhetsstatus og hendelseslogg
       widgets/
-        tilt_circle.py           Canvas-basert tilt-sirkel
-        platform_renderer.py     Matplotlib 3D-tegning av plattformen
+        indicator_lamp.py        Statuslampe (gron/gul/rod)
+        status_banner.py         Statusbanner pa topp av faner
+        servo_bars.py            Vinkelbarer for 6 servoer
+        pose_sliders.py          Sliders for 6-DOF pose
+        pid_card.py              PID-tuning-kort (kp, ki, kd)
+        realtime_plot.py         pyqtgraph sanntidsplot
+        response_plot.py         PID-responsplot
+        event_log.py             Rullende hendelseslogg
+      utils/
+        theme.py                 Lyst og morkt Qt-tema
+        ring_buffer.py           Ringbuffer for plotdata
+        formatting.py            Tallformatering for visning
   tests/
     ...                          Pytest-tester (speiler pakkestruktur)
 ```
 
 ## UML-diagram
 
-Se `docs/stewart_platform.puml` for komplett klassediagram. Apne med PlantUML-utvidelsen i VS Code eller pa [plantuml.com](https://www.plantuml.com/plantuml/uml/).
+Se `docs/stewart_platform_V3.puml` for nyeste klassediagram. Apne med PlantUML-utvidelsen i VS Code eller pa [plantuml.com](https://www.plantuml.com/plantuml/uml/).
+
+Tidligere revisjoner (`stewart_platform_V1.puml`, `stewart_platform_V2.puml`) ligger ogsa i `docs/` for historikk og sammenligning.

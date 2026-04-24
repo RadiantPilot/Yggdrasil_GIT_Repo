@@ -383,8 +383,14 @@ class TestPlatformConfig:
         Standardverdiene skal alltid vaere gyldige.
         """
         config = PlatformConfig()
-        # Skal ikke kaste unntak
-        config.validate()
+        errors = config.validate()
+        assert errors == []
+
+    def test_validate_returnerer_liste(self):
+        """Sjekk at validate returnerer en liste med feilmeldinger."""
+        config = PlatformConfig()
+        result = config.validate()
+        assert isinstance(result, list)
 
     def test_validate_feiler_for_feil_antall_servoer(self):
         """Sjekk at validering feiler hvis det ikke er noyaktig 6 servoer.
@@ -393,8 +399,9 @@ class TestPlatformConfig:
         """
         config = PlatformConfig()
         config.servo_configs = [ServoConfig(channel=i) for i in range(4)]
-        with pytest.raises(ValueError):
-            config.validate()
+        errors = config.validate()
+        assert len(errors) > 0
+        assert "6 servokonfigurasjoner" in errors[0]
 
     def test_validate_feiler_for_negative_dimensjoner(self):
         """Sjekk at validering feiler for negative geometriverdier.
@@ -402,8 +409,9 @@ class TestPlatformConfig:
         Radius, staglengde og hoyde ma vaere positive tall.
         """
         config = PlatformConfig(base_radius=-10.0)
-        with pytest.raises(ValueError):
-            config.validate()
+        errors = config.validate()
+        assert len(errors) > 0
+        assert "base_radius" in errors[0]
 
     def test_validate_feiler_for_ugyldig_vinkelomrade(self):
         """Sjekk at validering feiler hvis min_angle >= max_angle for en servo.
@@ -413,8 +421,25 @@ class TestPlatformConfig:
         config = PlatformConfig()
         config.servo_configs[0].min_angle_deg = 180.0
         config.servo_configs[0].max_angle_deg = 0.0
+        errors = config.validate()
+        assert len(errors) > 0
+
+    def test_validate_samler_flere_feil(self):
+        """Sjekk at validate returnerer alle feil, ikke bare den forste."""
+        config = PlatformConfig(base_radius=-10.0, platform_radius=-5.0)
+        errors = config.validate()
+        assert len(errors) >= 2
+
+    def test_raise_if_invalid_ok(self):
+        """Sjekk at raise_if_invalid ikke kaster for gyldig config."""
+        config = PlatformConfig()
+        config.raise_if_invalid()  # Skal ikke kaste
+
+    def test_raise_if_invalid_kaster_valueerror(self):
+        """Sjekk at raise_if_invalid kaster ValueError for ugyldig config."""
+        config = PlatformConfig(base_radius=-10.0)
         with pytest.raises(ValueError):
-            config.validate()
+            config.raise_if_invalid()
 
     # --- GUI-relevant: I2C-adresser lett justerbare ---
 

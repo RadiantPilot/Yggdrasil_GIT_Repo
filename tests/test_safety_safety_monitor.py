@@ -11,8 +11,8 @@
 #   - Gront: alt OK
 #   - Gult: advarsel (naer grense)
 #   - Rodt: feil/kritisk (grense overskredet eller nodstopp)
-#   GUI-en har ogsa en nodstopp-knapp som kaller trigger_emergency_stop()
-#   og en tilbakestill-knapp for reset_emergency_stop().
+#   GUI-en har ogsa en nodstopp-knapp som kaller trigger_e_stop()
+#   og en tilbakestill-knapp for reset_latched_faults().
 
 import pytest
 
@@ -118,7 +118,7 @@ class TestSafetyMonitorOpprettelse:
 
     def test_starter_uten_nodstopp(self, monitor):
         """Sjekk at nodstopp ikke er aktiv ved oppstart."""
-        assert monitor.is_emergency_stopped() is False
+        assert monitor.is_e_stopped() is False
 
     def test_lagrer_config(self, monitor):
         """Sjekk at sikkerhetskonfigurasjonen lagres."""
@@ -137,27 +137,27 @@ class TestNodstopp:
     """Tester for nodstopp-funksjonalitet.
 
     GUI-en har en tydelig nodstopp-knapp som kaller
-    trigger_emergency_stop(). En separat knapp for
-    reset_emergency_stop() lar brukeren gjenoppta drift.
+    trigger_e_stop(). En separat knapp for
+    reset_latched_faults() lar brukeren gjenoppta drift.
     """
 
-    def test_trigger_emergency_stop(self, monitor):
-        """Sjekk at trigger_emergency_stop() setter nodstopp-flagget."""
-        monitor.trigger_emergency_stop()
-        assert monitor.is_emergency_stopped() is True
+    def test_trigger_e_stop(self, monitor):
+        """Sjekk at trigger_e_stop() setter nodstopp-flagget."""
+        monitor.trigger_e_stop()
+        assert monitor.is_e_stopped() is True
 
-    def test_reset_emergency_stop(self, monitor):
-        """Sjekk at reset_emergency_stop() fjerner nodstopp-flagget."""
-        monitor.trigger_emergency_stop()
-        assert monitor.is_emergency_stopped() is True
-        monitor.reset_emergency_stop()
-        assert monitor.is_emergency_stopped() is False
+    def test_reset_latched_faults(self, monitor):
+        """Sjekk at reset_latched_faults() fjerner nodstopp-flagget."""
+        monitor.trigger_e_stop()
+        assert monitor.is_e_stopped() is True
+        monitor.reset_latched_faults()
+        assert monitor.is_e_stopped() is False
 
     def test_dobbel_trigger_er_ok(self, monitor):
         """Sjekk at nodstopp kan utloses flere ganger uten feil."""
-        monitor.trigger_emergency_stop()
-        monitor.trigger_emergency_stop()
-        assert monitor.is_emergency_stopped() is True
+        monitor.trigger_e_stop()
+        monitor.trigger_e_stop()
+        assert monitor.is_e_stopped() is True
 
 
 # ===========================================================================
@@ -352,7 +352,7 @@ class TestCheckAll:
 
         Ekstreme verdier skal gi CRITICAL severity og aktivere nodstopp.
         """
-        assert monitor.is_emergency_stopped() is False
+        assert monitor.is_e_stopped() is False
         result = monitor.check_all(
             pose=Pose(translation=Vector3(500.0, 500.0, 500.0)),  # Ekstremt
             angles=[200.0] * 6,  # Alle over grense
@@ -361,4 +361,121 @@ class TestCheckAll:
         )
         assert result.is_safe is False
         assert result.severity == SafetySeverity.CRITICAL
-        assert monitor.is_emergency_stopped() is True
+        assert monitor.is_e_stopped() is True
+
+
+# ===========================================================================
+# SafetyMonitor — Grensekonfigurasjon (get/set limits)
+# ===========================================================================
+
+class TestSafetyMonitorLimits:
+    """Tester for get_limits() og set_limits()."""
+
+    def test_get_limits_returnerer_safety_config(self, monitor):
+        """Sjekk at get_limits returnerer SafetyConfig."""
+        limits = monitor.get_limits()
+        assert isinstance(limits, SafetyConfig)
+
+    def test_get_limits_matcher_opprinnelig(self, monitor):
+        """Sjekk at returnert config matcher den opprinnelige."""
+        limits = monitor.get_limits()
+        assert limits.max_translation_mm == 50.0
+        assert limits.max_rotation_deg == 30.0
+
+    def test_set_limits_oppdaterer(self, monitor):
+        """Sjekk at set_limits endrer sikkerhetsgrensene."""
+        ny_config = SafetyConfig(max_translation_mm=100.0, max_rotation_deg=45.0)
+        monitor.set_limits(ny_config)
+        limits = monitor.get_limits()
+        assert limits.max_translation_mm == 100.0
+        assert limits.max_rotation_deg == 45.0
+
+    def test_set_limits_pavirker_validering(self, monitor):
+        """Sjekk at nye grenser faktisk brukes i validering."""
+        # Pose som er utenfor standard grenser (50mm)
+        pose = Pose(translation=Vector3(75.0, 0.0, 0.0))
+        assert monitor.validate_pose(pose) is False
+
+        # Utvid grensene
+        monitor.set_limits(SafetyConfig(max_translation_mm=100.0))
+        assert monitor.validate_pose(pose) is True
+
+
+# ===========================================================================
+# SafetyMonitor — Nodstopp med arsak
+# ===========================================================================
+
+class TestTriggerEStopMedArsak:
+    """Tester for trigger_e_stop(reason)."""
+
+    def test_trigger_e_stop_med_arsak(self, monitor):
+        """Sjekk at trigger_e_stop aksepterer arsak-streng."""
+        monitor.trigger_e_stop("Manuell nodstopp fra GUI")
+        assert monitor.is_e_stopped() is True
+
+    def test_trigger_e_stop_lagrer_arsak(self, monitor):
+        """Sjekk at arsaken lagres og kan hentes ut."""
+        monitor.trigger_e_stop("Servo 3 blokkert")
+        assert monitor.e_stop_reason == "Servo 3 blokkert"
+
+    def test_trigger_e_stop_uten_arsak(self, monitor):
+        """Sjekk at trigger_e_stop funger uten arsak (bakoverkompatibel)."""
+        monitor.trigger_e_stop()
+        assert monitor.is_e_stopped() is True
+
+
+# ===========================================================================
+# SafetyMonitor — Historikk (get_check_results)
+# ===========================================================================
+
+class TestSafetyMonitorHistorikk:
+    """Tester for get_check_results() som gir siste N resultater."""
+
+    def test_tom_historikk_ved_start(self, monitor):
+        """Sjekk at historikken er tom etter opprettelse."""
+        assert len(monitor.get_check_results()) == 0
+
+    def test_check_all_legger_til_i_historikk(self, monitor):
+        """Sjekk at hvert kall til check_all lagres i historikken."""
+        monitor.check_all(
+            pose=Pose.home(), angles=[90.0] * 6,
+            accel=Vector3(0.0, 0.0, 9.81), dt=0.02,
+        )
+        assert len(monitor.get_check_results()) == 1
+
+    def test_historikk_maks_100(self, monitor):
+        """Sjekk at historikken begrenses til 100 resultater."""
+        for _ in range(120):
+            monitor.check_all(
+                pose=Pose.home(), angles=[90.0] * 6,
+                accel=Vector3(0.0, 0.0, 9.81), dt=0.02,
+            )
+        results = monitor.get_check_results()
+        assert len(results) == 100
+
+
+# ===========================================================================
+# SafetyMonitor — Reset latched faults
+# ===========================================================================
+
+class TestResetLatchedFaults:
+    """Tester for reset_latched_faults()."""
+
+    def test_reset_etter_nodstopp_returnerer_true(self, monitor):
+        """Sjekk at reset lykkes etter nodstopp og returnerer True."""
+        monitor.trigger_e_stop("Test")
+        assert monitor.is_e_stopped() is True
+        result = monitor.reset_latched_faults()
+        assert result is True
+        assert monitor.is_e_stopped() is False
+
+    def test_reset_uten_feil_returnerer_false(self, monitor):
+        """Sjekk at reset returnerer False naar det ikke er noe a tilbakestille."""
+        result = monitor.reset_latched_faults()
+        assert result is False
+
+    def test_reset_nullstiller_arsak(self, monitor):
+        """Sjekk at arsaken fjernes etter reset."""
+        monitor.trigger_e_stop("Test-arsak")
+        monitor.reset_latched_faults()
+        assert monitor.e_stop_reason is None
