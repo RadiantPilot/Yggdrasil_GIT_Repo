@@ -41,6 +41,9 @@ class PidCard(QWidget):
         super().__init__()
         self._axis_name = axis_name
         self._updating = False
+        # Indeks 0..2 for Kp/Ki/Kd — peker på hvilken parameter
+        # knappenavigasjonen skal justere når kortet er i edit-mode.
+        self._active_param_index = 0
 
         frame = QFrame(self)
         frame.setFrameStyle(QFrame.StyledPanel)
@@ -143,3 +146,47 @@ class PidCard(QWidget):
             ki=self._spins[1].value(),
             kd=self._spins[2].value(),
         )
+
+    # ------------------------------------------------------------------
+    # Navigable-implementasjon — styres av FocusManager.
+    # nav_vertical bytter mellom Kp/Ki/Kd, nav_horizontal justerer aktiv
+    # verdi med spinbox-stegstørrelse.
+    # ------------------------------------------------------------------
+
+    def set_focused(self, focused: bool) -> None:
+        """Markeres som fokusert i nav-mode (uten edit)."""
+        # apply_nav_state håndterer faktisk stylesheet; vi tar imot
+        # signalet for symmetri og ev. semantikk-spesifikk respons.
+        if focused:
+            self._highlight_active_param()
+        else:
+            self._clear_active_param_highlight()
+
+    def set_edit_mode(self, edit: bool) -> None:
+        """Tegn ekstra fremheving av aktiv parameter når i edit."""
+        if edit:
+            self._highlight_active_param()
+        else:
+            self._clear_active_param_highlight()
+
+    def nav_vertical(self, delta: int) -> None:
+        """Bytt aktiv koeffisient (Kp ↔ Ki ↔ Kd)."""
+        self._active_param_index = (self._active_param_index + delta) % 3
+        self._highlight_active_param()
+
+    def nav_horizontal(self, delta: int) -> None:
+        """Juster aktiv koeffisient med spinbox-steg."""
+        spin = self._spins[self._active_param_index]
+        spin.setValue(spin.value() + delta * spin.singleStep())
+
+    def _highlight_active_param(self) -> None:
+        """Sett en bakgrunnsfarge på spin-boksen som er aktiv."""
+        for i, spin in enumerate(self._spins):
+            if i == self._active_param_index:
+                spin.setStyleSheet("background: #f9d77e;")
+            else:
+                spin.setStyleSheet("")
+
+    def _clear_active_param_highlight(self) -> None:
+        for spin in self._spins:
+            spin.setStyleSheet("")

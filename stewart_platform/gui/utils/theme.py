@@ -167,6 +167,15 @@ def _build_stylesheet(t: Theme) -> str:
             margin: -5px 0;
             border-radius: 7px;
         }}
+        /* Knappenavigasjon: ramme rundt fokusert / aktivt redigerings-element. */
+        QWidget[navState="focused"] {{
+            border: 2px solid {t.highlight};
+            border-radius: 4px;
+        }}
+        QWidget[navState="edit"] {{
+            border: 3px solid #f39c12;
+            border-radius: 4px;
+        }}
     """
 
 

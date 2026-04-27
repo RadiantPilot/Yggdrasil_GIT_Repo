@@ -13,6 +13,8 @@ from typing import List
 
 import yaml
 
+from .button_config import ButtonConfig
+
 
 class Axis(IntEnum):
     """Frihetsgrader for Stewart-plattformen.
@@ -190,6 +192,10 @@ class PlatformConfig:
     # Sikkerhetsgrenser.
     safety_config: SafetyConfig = field(default_factory=SafetyConfig)
 
+    # Konfigurasjon for det fysiske knappekortet (5-knappers
+    # navigasjon). Kan deaktiveres ved å sette enabled: false.
+    button_config: ButtonConfig = field(default_factory=ButtonConfig)
+
     @classmethod
     def load(cls, filepath: str) -> PlatformConfig:
         """Last konfigurasjon fra en YAML-fil.
@@ -222,6 +228,7 @@ class PlatformConfig:
         servo_configs_data = data.pop("servo_configs", None)
         pid_gains_data = data.pop("pid_gains", None)
         safety_config_data = data.pop("safety_config", None)
+        button_config_data = data.pop("button_config", None)
 
         config = cls(**data)
 
@@ -233,6 +240,8 @@ class PlatformConfig:
             config.pid_gains = PIDGains(**pid_gains_data)
         if safety_config_data is not None:
             config.safety_config = SafetyConfig(**safety_config_data)
+        if button_config_data is not None:
+            config.button_config = ButtonConfig(**button_config_data)
 
         return config
 

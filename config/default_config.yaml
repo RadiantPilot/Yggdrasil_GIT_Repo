@@ -136,3 +136,26 @@ safety_config:
   servo_angle_margin_deg: 5.0          # Sikkerhetsmargin fra mekanisk grense
   watchdog_timeout_s: 1.0              # Watchdog-tidsgrense
   imu_fault_threshold_g: 4.0           # Terskel for IMU-feildeteksjon
+
+# --- Knappekort ---
+# 5-knappers navigasjonskort (pluss-mønster) for å styre GUI-en uten
+# mus eller tastatur. Backend velger om knappene leses direkte fra
+# RPi GPIO eller via en ATTINY1624 over I2C.
+#   gpio: pin 11, 13, 15, 19, 21 = GPIO 17, 27, 22, 10, 9 (alle pull-up).
+#   i2c:  ATTINY-firmware (Knappekort.C) på adresse 0x20.
+#   mock: brukes med --mock-flagget; tastatur-piler styrer da GUI-et.
+button_config:
+  enabled: true
+  backend: gpio                # gpio | i2c | mock
+  poll_hz: 50.0
+  debounce_ms: 20.0
+  long_press_ms: 1000.0        # >1 s på midt-knappen utløser E-STOP
+  gpio_pins: [17, 27, 22, 10, 9]
+  i2c_address: 0x20
+  i2c_button_bits: [0, 1, 2, 3, 4]
+  nudge_steps:
+    translation_mm: 1.0
+    rotation_deg: 1.0
+    pid_kp: 0.05
+    pid_ki: 0.05
+    pid_kd: 0.005

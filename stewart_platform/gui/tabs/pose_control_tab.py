@@ -201,6 +201,10 @@ class PoseControlTab(QWidget):
         self._sliders._updating = False
         self._sliders._emit_pose()
 
+    def get_navigables(self) -> list:
+        """Returner widgets som FocusManager kan styre med knappekortet."""
+        return [self._sliders]
+
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Oppdater nåværende-pose-visning og servobars."""
         cur = snapshot.current_pose

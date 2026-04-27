@@ -31,6 +31,23 @@ class I2CBus:
         self._bus_number = bus_number
         self._bus = None  # Initialiseres med smbus2.SMBus
 
+    def read_byte(self, address: int) -> int:
+        """Les en enkelt byte fra en I2C-enhet uten registeradresse.
+
+        Brukes mot enheter som bare svarer på en ren read-transaksjon
+        (start + addr+R + read + stop) — typisk slaves som er bygget
+        rundt Arduino Wire.onRequest, slik som ATTINY-firmwaren på
+        knappekortet. read_byte_data() ville sende en ekstra
+        register-byte som disse slavene ikke har et konsept for.
+
+        Args:
+            address: I2C-adressen til enheten.
+
+        Returns:
+            Byteverdien som ble lest (0-255).
+        """
+        raise NotImplementedError
+
     def read_byte_data(self, address: int, register: int) -> int:
         """Les en enkelt byte fra et register på en I2C-enhet.
 

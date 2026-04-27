@@ -240,6 +240,10 @@ class PidTuningTab(QWidget):
         )
         self._bridge.set_target_pose(new_pose)
 
+    def get_navigables(self) -> list:
+        """Returner alle PID-kort som fokuserbare widgets, i akse-rekkefølge."""
+        return [self._cards[axis] for axis, *_ in _AXIS_INFO if axis in self._cards]
+
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Oppdater kort-feilvisning og grafer."""
         # Oppdater PID-feil på kortene

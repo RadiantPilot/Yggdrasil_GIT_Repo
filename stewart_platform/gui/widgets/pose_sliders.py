@@ -43,7 +43,10 @@ class PoseSliders(QWidget):
         self._sliders: list[QSlider] = []
         self._spinboxes: list[QDoubleSpinBox] = []
         self._current_labels: list[QLabel] = []
+        self._axis_labels: list[QLabel] = []
         self._updating = False
+        # Aktiv akse 0..5 for knappenavigasjon i edit-mode.
+        self._active_axis_index = 0
 
         grid = QGridLayout(self)
         grid.setSpacing(8)
@@ -60,6 +63,7 @@ class PoseSliders(QWidget):
             lbl = QLabel(f"{name} ({unit})")
             lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
             grid.addWidget(lbl, row, 0)
+            self._axis_labels.append(lbl)
 
             # Slider
             slider = QSlider(Qt.Horizontal)
@@ -154,3 +158,46 @@ class PoseSliders(QWidget):
             self._spinboxes[i].setValue(v)
             self._sliders[i].setValue(int(v * 100))
         self._updating = False
+
+    # ------------------------------------------------------------------
+    # Navigable-implementasjon — styres av FocusManager.
+    # nav_vertical bytter mellom de 6 aksene, nav_horizontal nudger
+    # aktiv akse via spinbox-stegstørrelse.
+    # ------------------------------------------------------------------
+
+    def set_focused(self, focused: bool) -> None:
+        """Markeres som fokusert; fremhev aktiv akse hvis ja."""
+        if focused:
+            self._highlight_active_axis()
+        else:
+            self._clear_axis_highlight()
+
+    def set_edit_mode(self, edit: bool) -> None:
+        """Når i edit-mode skal aktiv akse fortsatt være fremhevet."""
+        if edit:
+            self._highlight_active_axis()
+        else:
+            self._clear_axis_highlight()
+
+    def nav_vertical(self, delta: int) -> None:
+        """Bla mellom de 6 aksene."""
+        self._active_axis_index = (self._active_axis_index + delta) % len(_AXES)
+        self._highlight_active_axis()
+
+    def nav_horizontal(self, delta: int) -> None:
+        """Nudge aktiv akse med ett spinbox-steg."""
+        spin = self._spinboxes[self._active_axis_index]
+        spin.setValue(spin.value() + delta * spin.singleStep())
+
+    def _highlight_active_axis(self) -> None:
+        for i, lbl in enumerate(self._axis_labels):
+            if i == self._active_axis_index:
+                lbl.setStyleSheet(
+                    "font-size: 13px; font-weight: 700; color: #f39c12;"
+                )
+            else:
+                lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+
+    def _clear_axis_highlight(self) -> None:
+        for lbl in self._axis_labels:
+            lbl.setStyleSheet("font-size: 13px; font-weight: 600;")

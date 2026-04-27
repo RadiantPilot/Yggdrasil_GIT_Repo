@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from .bridge.controller_bridge import ControllerBridge
 from .bridge.state_snapshot import StateSnapshot
+from .navigation.focus_manager import ButtonId, FocusManager
 from .tabs.config_tab import ConfigTab
 from .tabs.imu_tab import ImuTab
 from .tabs.overview_tab import OverviewTab
@@ -51,6 +52,9 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_tabs()
         self._build_statusbar()
+        # Focus manager må eksistere før shortcuts kobles, siden de
+        # ruter knappetrykk via den.
+        self._install_focus_manager()
         self._install_shortcuts()
 
     # ------------------------------------------------------------------
@@ -153,6 +157,44 @@ class MainWindow(QMainWindow):
         # F1 = E-STOP
         sc_estop = QShortcut(QKeySequence("F1"), self)
         sc_estop.activated.connect(self._on_estop_clicked)
+
+        # Piltaster + Enter speiler det fysiske knappekortet, slik at
+        # hele navigasjonen kan testes uten hardware. F2 = lang-trykk
+        # midt (E-STOP via knappemodellen).
+        for key, btn_id in (
+            ("Left", ButtonId.LEFT),
+            ("Up", ButtonId.UP),
+            ("Down", ButtonId.DOWN),
+            ("Right", ButtonId.RIGHT),
+            ("Return", ButtonId.CENTER),
+            ("Enter", ButtonId.CENTER),
+        ):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.activated.connect(
+                lambda b=btn_id: self._focus_manager.on_pressed(int(b))
+            )
+
+        sc_long = QShortcut(QKeySequence("F2"), self)
+        sc_long.activated.connect(
+            lambda: self._focus_manager.on_long_pressed(int(ButtonId.CENTER))
+        )
+
+    def _install_focus_manager(self) -> None:
+        """Bygg FocusManager og registrer Navigables fra hver tab."""
+        self._focus_manager = FocusManager(
+            tabs=self._tabs,
+            estop_callback=self._on_estop_clicked,
+        )
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            getter = getattr(tab, "get_navigables", None)
+            if callable(getter):
+                self._focus_manager.register_navigables(i, getter())
+
+    @property
+    def focus_manager(self) -> FocusManager:
+        """Eksponer FocusManager for app.py (for å koble ButtonWorker-signaler)."""
+        return self._focus_manager
 
     # ------------------------------------------------------------------
     # Signal-slots
