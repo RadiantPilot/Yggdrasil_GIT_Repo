@@ -1,0 +1,23 @@
+# Normaliser linjeskift: alt lagres som LF i repoet,
+# men kan checkes ut som CRLF lokalt på Windows hvis ønsket.
+* text=auto eol=lf
+
+# Kildekode og konfig — alltid LF
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.txt   text eol=lf
+*.puml  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+
+# Binærfiler — ikke rør
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.pyc   binary

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribusjon / build
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtuelle miljøer
+.venv/
+venv/
+env/
+ENV/
+
+# Test- og verktøy-cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lokale konfig-overstyringer
+config/local_*.yaml
