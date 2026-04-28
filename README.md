@@ -4,7 +4,7 @@
 
 ## Oversikt
 
-Yggdrasil er et kontrollsystem for en Stewart-plattform (hexapod) med 6 frihetsgrader. Systemet leser orientering fra IMU-sensorer, beregner invers kinematikk og styrer 6 servomotorer via en PCA9685 PWM-driver — alt over I2C.
+Yggdrasil er et kontrollsystem for en Stewart-plattform (hexapod) med 6 frihetsgrader. Systemet leser orientering fra IMU-sensorer, beregner invers kinematikk og styrer 6 servomotorer via en PCA9685 PWM-driver, alt over I2C.
 
 Plattformen er under aktiv utvikling og designet for enkel tuning og eksperimentering.
 
@@ -12,7 +12,7 @@ Plattformen er under aktiv utvikling og designet for enkel tuning og eksperiment
 
 | Komponent | Type | Interface | Standard adresse |
 |-----------|------|-----------|------------------|
-| Kontroller | Raspberry Pi 4B | — | — |
+| Kontroller | Raspberry Pi 4B | - | - |
 | PWM-driver | PCA9685 (16-kanals) | I2C | 0x40 |
 | IMU bunnplate | LSM6DSOXTR | I2C | 0x6A |
 | Servomotorer | 6 stk | PWM via PCA9685 | Kanal 0-5 |
@@ -63,7 +63,7 @@ sa du kan installere kun det du trenger for ditt bruksomrade:
 
 | Gruppe | Pakker | Nar trenger jeg det? |
 |--------|--------|----------------------|
-| (kjerne) | `numpy`, `PyYAML` | Alltid — installeres automatisk |
+| (kjerne) | `numpy`, `PyYAML` | Alltid, installeres automatisk |
 | `gui` | `PySide6`, `pyqtgraph` | For a kjore GUI-et |
 | `hardware` | `smbus2` | For a snakke med I2C-enheter pa Raspberry Pi |
 | `dev` | `pytest` | For a kjore tester |
@@ -219,7 +219,7 @@ Plattformen har et grafisk brukergrensesnitt bygget med PySide6 (Qt6) og pyqtgra
 # Kobler til ekte maskinvare (standard)
 python -m stewart_platform.gui
 
-# Simulert modus uten maskinvare — for utvikling og testing pa PC
+# Simulert modus uten maskinvare, for utvikling og testing pa PC
 python -m stewart_platform.gui --mock
 
 # Alternativ konfigurasjonsfil

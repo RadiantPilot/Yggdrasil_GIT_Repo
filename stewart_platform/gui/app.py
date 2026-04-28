@@ -56,7 +56,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--theme",
         choices=["light", "dark"],
-        default="light",
+        default="dark",
         help="Startstema for GUI-et (kan byttes i toppmenyen).",
     )
     return parser.parse_args()
