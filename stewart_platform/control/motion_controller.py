@@ -92,6 +92,10 @@ class MotionController:
 
         # IMU-sensor (bunnplate)
         self._base_imu = LSM6DSOXDriver(bus, cfg.lsm6dsox_address)
+        # Tilbakestill og konfigurer sensoren før bruk.
+        # Uten configure() kjører sensoren i power-down og gir 0-er.
+        self._base_imu.reset()
+        self._base_imu.configure()
 
         # Geometri og kinematikk
         geometry = PlatformGeometry(cfg)
