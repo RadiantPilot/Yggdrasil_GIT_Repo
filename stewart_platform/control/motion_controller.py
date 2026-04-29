@@ -85,6 +85,9 @@ class MotionController:
         # I2C og maskinvare
         bus = I2CBus(cfg.i2c_bus_number)
         driver = PCA9685Driver(bus, cfg.pca9685_address, cfg.pca9685_frequency)
+        # Vekker PCA9685 fra sleep og setter PWM-frekvens.
+        # Uten dette gir den ingen utgang selv om alle write_byte_data lykkes.
+        driver.reset()
         self._servo_array = ServoArray(cfg.servo_configs, driver)
 
         # IMU-sensor (bunnplate)

@@ -29,7 +29,10 @@ class I2CBus:
             bus_number: I2C-bussnummer (vanligvis 1 på RPi 4B).
         """
         self._bus_number = bus_number
-        self._bus = None  # Initialiseres med smbus2.SMBus
+        # Lokal import slik at modulen kan importeres på dev-PC
+        # uten smbus2 installert (kun feiler ved faktisk bruk).
+        from smbus2 import SMBus
+        self._bus = SMBus(bus_number)
 
     def read_byte(self, address: int) -> int:
         """Les en enkelt byte fra en I2C-enhet uten registeradresse.
@@ -46,7 +49,7 @@ class I2CBus:
         Returns:
             Byteverdien som ble lest (0-255).
         """
-        raise NotImplementedError
+        return self._bus.read_byte(address)
 
     def read_byte_data(self, address: int, register: int) -> int:
         """Les en enkelt byte fra et register på en I2C-enhet.
@@ -58,7 +61,7 @@ class I2CBus:
         Returns:
             Byteverdien som ble lest (0-255).
         """
-        raise NotImplementedError
+        return self._bus.read_byte_data(address, register)
 
     def write_byte_data(self, address: int, register: int, value: int) -> None:
         """Skriv en enkelt byte til et register på en I2C-enhet.
@@ -68,7 +71,7 @@ class I2CBus:
             register: Registeradressen som skal skrives til.
             value: Byteverdien som skal skrives (0-255).
         """
-        raise NotImplementedError
+        self._bus.write_byte_data(address, register, value)
 
     def read_block_data(self, address: int, register: int, length: int) -> List[int]:
         """Les en blokk med bytes fra en I2C-enhet.
@@ -84,7 +87,7 @@ class I2CBus:
         Returns:
             Liste med byteverdier.
         """
-        raise NotImplementedError
+        return list(self._bus.read_i2c_block_data(address, register, length))
 
     def write_block_data(self, address: int, register: int, data: List[int]) -> None:
         """Skriv en blokk med bytes til en I2C-enhet.
@@ -94,11 +97,13 @@ class I2CBus:
             register: Startregisteradressen.
             data: Liste med byteverdier som skal skrives.
         """
-        raise NotImplementedError
+        self._bus.write_i2c_block_data(address, register, list(data))
 
     def close(self) -> None:
         """Lukk I2C-bussforbindelsen og frigjør ressurser."""
-        raise NotImplementedError
+        if self._bus is not None:
+            self._bus.close()
+            self._bus = None
 
     def __enter__(self) -> I2CBus:
         """Støtte for kontekstbehandling (with-blokk)."""
