@@ -1,19 +1,22 @@
 # bringup_one_servo.py
 # ====================
-# Standalone hardware-bringup-test for én servo koblet til PCA9685 kanal 0.
+# Standalone hardware-bringup-test for én servo koblet til PCA9685.
 # Sender forsiktige pulsbredder og venter på Enter mellom hvert steg, slik
 # at brukeren kan stoppe med Ctrl+C dersom servoen oppfører seg uventet.
 #
 # Forutsetninger:
-#  - Kun én servo (DF9GMS eller annen 9g mikro-servo) koblet til kanal 0
+#  - Kun én servo (DF9GMS eller annen 9g mikro-servo) koblet til valgt kanal
 #  - Servoen står fritt — ikke montert mekanisk
 #  - V+ til PCA9685 har riktig spenning (5–6 V)
 #
 # Kjøres på Pi:
-#     python scripts/bringup_one_servo.py
+#     python scripts/bringup_one_servo.py             # default kanal 0
+#     python scripts/bringup_one_servo.py -c 3        # kanal 3
+#     python scripts/bringup_one_servo.py --channel 5 # kanal 5
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 
@@ -23,7 +26,7 @@ from stewart_platform.hardware.pca9685_driver import PCA9685Driver
 I2C_BUS_NUMBER = 1
 PCA_ADDRESS = 0x40
 PWM_FREQUENCY_HZ = 50
-SERVO_CHANNEL = 0
+DEFAULT_SERVO_CHANNEL = 0
 
 # Konservative pulsbredder for første test. DF9GMS støtter typisk 500–2400 µs,
 # men vi holder oss godt innenfor for å unngå at servoen slår mot mekaniske
@@ -45,13 +48,31 @@ def _prompt(message: str) -> None:
         pass
 
 
-def _send_pulse(pca: PCA9685Driver, pulse_us: int, label: str) -> None:
-    print(f"\n  Sender {pulse_us} µs til kanal {SERVO_CHANNEL} ({label})")
-    pca.set_pulse_width_us(SERVO_CHANNEL, pulse_us)
+def _send_pulse(pca: PCA9685Driver, channel: int, pulse_us: int, label: str) -> None:
+    print(f"\n  Sender {pulse_us} µs til kanal {channel} ({label})")
+    pca.set_pulse_width_us(channel, pulse_us)
     time.sleep(SETTLE_TIME_S)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Bringup-test for én servo koblet til PCA9685.",
+    )
+    parser.add_argument(
+        "-c", "--channel",
+        type=int,
+        default=DEFAULT_SERVO_CHANNEL,
+        choices=range(16),
+        metavar="N",
+        help="PCA9685-kanal å teste (0–15, default 0).",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = _parse_args()
+    channel = args.channel
+
     bus = I2CBus(I2C_BUS_NUMBER)
     pca = PCA9685Driver(bus, address=PCA_ADDRESS, frequency=PWM_FREQUENCY_HZ)
 
@@ -60,28 +81,28 @@ def main() -> int:
     pca.reset()
     time.sleep(0.01)
 
-    print("\nSjekkliste før vi sender pulser:")
-    print("  - Kun én servo koblet til kanal 0")
-    print("  - Servoen står fritt (ikke fast i mekanikk)")
-    print("  - Spenning til V+ er 5–6 V")
-    print("  - Du har strømforsyningen lett tilgjengelig for å kutte raskt")
+    print(f"\nSjekkliste før vi sender pulser:")
+    print(f"  - Kun én servo koblet til kanal {channel}")
+    print(f"  - Servoen står fritt (ikke fast i mekanikk)")
+    print(f"  - Spenning til V+ er 5–6 V")
+    print(f"  - Du har strømforsyningen lett tilgjengelig for å kutte raskt")
     _prompt("Klar til å sende første puls?")
 
     try:
         # --- Steg 1: Midtstilling ---------------------------------------
-        _send_pulse(pca, PULSE_CENTER_US, "midt")
+        _send_pulse(pca, channel, PULSE_CENTER_US, "midt")
         _prompt("Stoppet servoen på midten?")
 
         # --- Steg 2: Liten venstre-sweep --------------------------------
-        _send_pulse(pca, PULSE_LEFT_US, "litt venstre")
+        _send_pulse(pca, channel, PULSE_LEFT_US, "litt venstre")
         _prompt("Beveget den seg litt mot venstre?")
 
         # --- Steg 3: Liten høyre-sweep ----------------------------------
-        _send_pulse(pca, PULSE_RIGHT_US, "litt høyre")
+        _send_pulse(pca, channel, PULSE_RIGHT_US, "litt høyre")
         _prompt("Beveget den seg gjennom midt og videre til høyre?")
 
         # --- Steg 4: Tilbake til midt -----------------------------------
-        _send_pulse(pca, PULSE_CENTER_US, "midt")
+        _send_pulse(pca, channel, PULSE_CENTER_US, "midt")
         _prompt("Tilbake på midten?")
 
         # --- Steg 5 (valgfritt): Bredere sweep --------------------------
@@ -93,17 +114,17 @@ def main() -> int:
             choice = "n"
 
         if choice in ("j", "y", "ja", "yes"):
-            _send_pulse(pca, PULSE_WIDE_LEFT_US, "bredt venstre")
+            _send_pulse(pca, channel, PULSE_WIDE_LEFT_US, "bredt venstre")
             _prompt("Stoppet på en lengre venstre-posisjon?")
-            _send_pulse(pca, PULSE_WIDE_RIGHT_US, "bredt høyre")
+            _send_pulse(pca, channel, PULSE_WIDE_RIGHT_US, "bredt høyre")
             _prompt("Stoppet på en lengre høyre-posisjon?")
-            _send_pulse(pca, PULSE_CENTER_US, "midt")
+            _send_pulse(pca, channel, PULSE_CENTER_US, "midt")
             _prompt("Tilbake på midten?")
 
     finally:
         # Slå alltid av kanalen ved avslutning, også ved Ctrl+C eller feil.
-        print("\nSlår av PWM på kanal 0...")
-        pca.set_pwm(SERVO_CHANNEL, 0, 0)
+        print(f"\nSlår av PWM på kanal {channel}...")
+        pca.set_pwm(channel, 0, 0)
         bus.close()
 
     print("Ferdig — servo-styring fungerer fra PCA9685.")
