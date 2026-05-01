@@ -187,3 +187,41 @@ class TestWorkspaceBounds:
         assert max_pose.translation.x < 150.0
         assert max_pose.translation.y < 150.0
         assert max_pose.translation.z < 150.0
+
+
+class TestIKDirectionUavhengig:
+    """Regresjonstest: IK skal returnere ren geometrisk vinkel.
+
+    Tidligere flippet IK vinkelen (180 - alpha) for servoer med
+    direction=-1, og Servo.angle_to_pulse_us flippet en gang til.
+    Dobbel inversjon brot kalibrering for inverterte servoer.
+    Etter fiksen skal IK gi samme vinkel uavhengig av direction.
+    """
+
+    def test_direction_paavirker_ikke_ik_output(self, default_platform_config):
+        """Sjekk at direction=-1 gir samme IK-vinkel som direction=+1.
+
+        IK skal vaere ren geometri; rotasjonsretning hører hjemme i
+        Servo-laget naar pulsbredden beregnes.
+        """
+        from stewart_platform.config.platform_config import ServoConfig
+        from stewart_platform.geometry.platform_geometry import PlatformGeometry
+
+        geo = PlatformGeometry(default_platform_config)
+        configs_pluss = [
+            ServoConfig(channel=i, mounting_angle_deg=i * 60.0, direction=1)
+            for i in range(6)
+        ]
+        configs_minus = [
+            ServoConfig(channel=i, mounting_angle_deg=i * 60.0, direction=-1)
+            for i in range(6)
+        ]
+        ik_pluss = InverseKinematics(geo, configs_pluss)
+        ik_minus = InverseKinematics(geo, configs_minus)
+
+        pose = Pose(translation=Vector3(0.0, 0.0, 5.0))
+        vinkler_pluss = ik_pluss.solve(pose)
+        vinkler_minus = ik_minus.solve(pose)
+
+        for v_p, v_m in zip(vinkler_pluss, vinkler_minus):
+            assert v_p == pytest.approx(v_m, abs=1e-9)

@@ -84,19 +84,27 @@ class PoseController:
         self._response_listeners: List[ResponseListener] = []
 
     def update(self, target: Pose, current: Pose, dt: float) -> Pose:
-        """Beregn korrigert pose basert på avviket mellom mål og nåværende pose.
+        """Beregn kommandert pose = target + PID-korreksjon.
 
-        Kjører alle 6 PID-regulatorer med forskjellen mellom
-        target og current som feil, og returnerer en ny pose
-        som representerer den nødvendige korreksjonen.
+        Kjører alle 6 PID-regulatorer på avviket mellom target og
+        current. Outputene tolkes som tilleggskorreksjoner som
+        legges på toppen av target, slik at posen sendt videre til
+        IK-solveren er feed-forward (target) pluss closed-loop
+        (PID).
+
+        Når plattformen allerede er der den skal være, blir
+        korreksjonen null og kommandert pose lik target. Når det er
+        avvik, gir PID-regulatorene en additiv korreksjon for å
+        eliminere det.
 
         Args:
-            target: Ønsket mål-pose.
+            target: Ønsket mål-pose (setpunkt for IK).
             current: Nåværende estimert pose (fra IMU-fusjon).
             dt: Tid siden forrige oppdatering i sekunder.
 
         Returns:
-            Korrigert pose som kan sendes til IK-solveren.
+            Kommandert pose (target + PID-korreksjon) som kan
+            sendes til IK-solveren.
         """
         from ..geometry.vector3 import Vector3
 
@@ -108,13 +116,21 @@ class PoseController:
             current.translation.x, current.translation.y, current.translation.z,
             current.rotation.x, current.rotation.y, current.rotation.z,
         ]
-        outputs = [
+        corrections = [
             self._controllers[i].update(setpoints[i], measurements[i], dt)
             for i in range(6)
         ]
         return Pose(
-            translation=Vector3(outputs[0], outputs[1], outputs[2]),
-            rotation=Vector3(outputs[3], outputs[4], outputs[5]),
+            translation=Vector3(
+                setpoints[0] + corrections[0],
+                setpoints[1] + corrections[1],
+                setpoints[2] + corrections[2],
+            ),
+            rotation=Vector3(
+                setpoints[3] + corrections[3],
+                setpoints[4] + corrections[4],
+                setpoints[5] + corrections[5],
+            ),
         )
 
     def reset(self) -> None:

@@ -121,8 +121,11 @@ class TestPIDGains:
         assert gains.kp == 1.0
         assert gains.ki == 0.0
         assert gains.kd == 0.0
-        assert gains.output_min == -1.0
-        assert gains.output_max == 1.0
+        # Standardgrensene er per-tick korreksjon i mm/grader, valgt
+        # romslig nok til at en typisk feil ikke saturerer mens den
+        # fortsatt er trygt under sikkerhetsenvelopen.
+        assert gains.output_min == -10.0
+        assert gains.output_max == 10.0
         assert gains.integral_limit == 100.0
 
     def test_egendefinerte_gains(self):

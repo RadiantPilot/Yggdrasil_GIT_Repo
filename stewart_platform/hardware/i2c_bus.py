@@ -34,6 +34,18 @@ class I2CBus:
         from smbus2 import SMBus
         self._bus = SMBus(bus_number)
 
+    def _ensure_open(self) -> None:
+        """Kast tydelig feil hvis bussen allerede er lukket.
+
+        Uten denne ville read/write etter close() kaste
+        AttributeError ('NoneType' har ikke 'read_byte') — en
+        sniknedgang som er vanskelig å spore.
+        """
+        if self._bus is None:
+            raise RuntimeError(
+                f"I2CBus(bus_number={self._bus_number}) er lukket."
+            )
+
     def read_byte(self, address: int) -> int:
         """Les en enkelt byte fra en I2C-enhet uten registeradresse.
 
@@ -49,6 +61,7 @@ class I2CBus:
         Returns:
             Byteverdien som ble lest (0-255).
         """
+        self._ensure_open()
         return self._bus.read_byte(address)
 
     def read_byte_data(self, address: int, register: int) -> int:
@@ -61,6 +74,7 @@ class I2CBus:
         Returns:
             Byteverdien som ble lest (0-255).
         """
+        self._ensure_open()
         return self._bus.read_byte_data(address, register)
 
     def write_byte_data(self, address: int, register: int, value: int) -> None:
@@ -71,6 +85,7 @@ class I2CBus:
             register: Registeradressen som skal skrives til.
             value: Byteverdien som skal skrives (0-255).
         """
+        self._ensure_open()
         self._bus.write_byte_data(address, register, value)
 
     def read_block_data(self, address: int, register: int, length: int) -> List[int]:
@@ -87,6 +102,7 @@ class I2CBus:
         Returns:
             Liste med byteverdier.
         """
+        self._ensure_open()
         return list(self._bus.read_i2c_block_data(address, register, length))
 
     def write_block_data(self, address: int, register: int, data: List[int]) -> None:
@@ -97,13 +113,22 @@ class I2CBus:
             register: Startregisteradressen.
             data: Liste med byteverdier som skal skrives.
         """
+        self._ensure_open()
         self._bus.write_i2c_block_data(address, register, list(data))
 
     def close(self) -> None:
-        """Lukk I2C-bussforbindelsen og frigjør ressurser."""
+        """Lukk I2C-bussforbindelsen og frigjør ressurser.
+
+        Idempotent — trygg å kalle flere ganger.
+        """
         if self._bus is not None:
             self._bus.close()
             self._bus = None
+
+    @property
+    def is_closed(self) -> bool:
+        """True hvis bussen er lukket og ikke lenger kan brukes."""
+        return self._bus is None
 
     def __enter__(self) -> I2CBus:
         """Støtte for kontekstbehandling (with-blokk)."""

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import yaml
 
@@ -74,6 +74,11 @@ class PIDGains:
     Brukes til å justere PID-regulatoren som styrer plattformens
     bevegelse. Alle seks frihetsgradene deler samme forsterkning
     som utgangspunkt, men kan utvides til individuelle verdier.
+
+    output_min/output_max begrenser per-tick PID-korreksjonen i
+    samme enhet som aksen (mm for X/Y/Z, grader for roll/pitch/yaw).
+    Standardverdier er valgt slik at en enkelt korreksjon ikke
+    overskrider en mindre del av sikkerhetsenvelopen.
     """
 
     # Proporsjonal forsterkning.
@@ -85,11 +90,11 @@ class PIDGains:
     # Derivat forsterkning.
     kd: float = 0.0
 
-    # Minimum utgangsverdi fra regulatoren.
-    output_min: float = -1.0
+    # Minimum per-tick PID-korreksjon (mm eller grader).
+    output_min: float = -10.0
 
-    # Maksimum utgangsverdi fra regulatoren.
-    output_max: float = 1.0
+    # Maksimum per-tick PID-korreksjon (mm eller grader).
+    output_max: float = 10.0
 
     # Øvre grense for integralleddet (anti-windup).
     integral_limit: float = 100.0
@@ -174,7 +179,9 @@ class PlatformConfig:
     rod_length: float = 150.0
 
     # Hvilehøyde for toppplaten over bunnplaten i millimeter.
-    home_height: float = 120.0
+    # Kan settes til None i YAML for å la PlatformGeometry beregne
+    # høyden geometrisk (sqrt(rod_length^2 - horisontalt^2)).
+    home_height: Optional[float] = 120.0
 
     # --- Servo-, PID- og sikkerhetsinnstillinger ---
 
@@ -292,7 +299,9 @@ class PlatformConfig:
             errors.append(f"platform_radius må være positiv, fikk {self.platform_radius}.")
         if self.rod_length <= 0:
             errors.append(f"rod_length må være positiv, fikk {self.rod_length}.")
-        if self.home_height <= 0:
+        # home_height er Optional — None betyr "avled fra geometri".
+        # Bare valider hvis brukeren har satt en eksplisitt verdi.
+        if self.home_height is not None and self.home_height <= 0:
             errors.append(f"home_height må være positiv, fikk {self.home_height}.")
         if self.servo_horn_length <= 0:
             errors.append(f"servo_horn_length må være positiv, fikk {self.servo_horn_length}.")

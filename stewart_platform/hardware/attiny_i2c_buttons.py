@@ -1,9 +1,10 @@
 # attiny_i2c_buttons.py
 # =====================
 # Konkret ButtonInterface-implementasjon som leser knappestatus
-# fra ATTINY1624 over I2C. Firmwaren på ATTINY (Knappekort.C)
-# poller selv pinnene, debouncer, og returnerer en byte med
-# 5 bit-kodet trykkstatus når master gjør en read-request.
+# fra ATTINY1624 over I2C. Firmwaren på ATTINY
+# (firmware/knappekort.ino) poller selv pinnene, debouncer, og
+# returnerer en byte med 5 bit-kodet trykkstatus når master
+# gjør en read-request.
 
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ class AttinyI2CButtons(ButtonInterface):
             address: I2C-adressen ATTINY-firmwaren responderer på.
             button_bits: Hvilken bit i den leste byten som tilsvarer
                 hvilken knapp. Default [0, 1, 2, 3, 4] matcher
-                Knappekort.C.
+                firmware/knappekort.ino.
 
         Raises:
             ValueError: Hvis button_bits har feil lengde eller

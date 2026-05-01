@@ -5,17 +5,18 @@
 Plattformen er under utvikling og krever mye tuning og fleksibilitet.
 
 ## Arkitektur
-Objektorientert Python-design med 7 pakker:
+Objektorientert Python-design med 8 pakker:
 
 ```
 stewart_platform/
-  config/          -> PlatformConfig, ServoConfig, PIDGains, SafetyConfig
-  hardware/        -> I2CBus, PCA9685Driver, IMUInterface, LSM6DSOXDriver
+  config/          -> PlatformConfig, ServoConfig, PIDGains, SafetyConfig, ButtonConfig
+  hardware/        -> I2CBus, PCA9685Driver, IMUInterface, LSM6DSOXDriver, ButtonInterface
   geometry/        -> Vector3, Pose, PlatformGeometry
   servo/           -> Servo, ServoArray
   kinematics/      -> InverseKinematics
   control/         -> PIDController, PoseController, IMUFusion, MotionController
   safety/          -> SafetyMonitor, SafetyCheckResult, SafetySeverity
+  gui/             -> PySide6-app, faner, widgets, controller-bridge
 ```
 
 UML-diagram: `docs/stewart_platform.puml`

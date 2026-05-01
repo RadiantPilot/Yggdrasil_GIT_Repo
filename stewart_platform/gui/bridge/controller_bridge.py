@@ -25,7 +25,7 @@ from ...config.platform_config import Axis, PIDGains, PlatformConfig, SafetyConf
 from ...control.motion_controller import MotionController
 from ...geometry.pose import Pose
 from ...geometry.vector3 import Vector3
-from ...safety.safety_monitor import SafetyCheckResult
+from ...safety.safety_monitor import SafetyCheckResult, SafetySeverity
 from .state_snapshot import StateSnapshot
 
 
@@ -124,6 +124,7 @@ class ControllerBridge(QObject):
         # Ekte hardware-modus
         self._controller = MotionController(self._config)
         self._controller.initialize()
+        self._controller.add_safety_listener(self._on_safety_violation)
 
     def shutdown(self) -> None:
         """Rydde avslutning — stopp loop, frikoble servoer."""
@@ -377,6 +378,30 @@ class ControllerBridge(QObject):
         if ok:
             self._log_event("INFO", "E-STOP tilbakestilt")
         return ok
+
+    # ------------------------------------------------------------------
+    # Sikkerhetsvarsler fra MotionController
+    # ------------------------------------------------------------------
+
+    def _on_safety_violation(
+        self,
+        severity: SafetySeverity,
+        violations: List[str],
+    ) -> None:
+        """Mottak av sikkerhetsbrudd fra step()-løkka.
+
+        Loggfører bruddene som event og emitter safety_fault-signalet
+        slik at status-banner og safety-fanen får oppdatert visning
+        umiddelbart i stedet for å vente på neste polling-tick.
+        """
+        level = "FAIL" if severity is SafetySeverity.CRITICAL else "WARN"
+        for v in violations:
+            self._log_event(level, f"[{severity.value.upper()}] {v}")
+        self.safety_fault.emit(SafetyCheckResult(
+            is_safe=False,
+            violations=list(violations),
+            severity=severity,
+        ))
 
     # ------------------------------------------------------------------
     # Hendelseslogg

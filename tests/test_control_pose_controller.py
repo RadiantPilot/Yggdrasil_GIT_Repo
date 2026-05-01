@@ -42,11 +42,12 @@ class TestPoseControllerOpprettelse:
 class TestPoseControllerUpdate:
     """Tester for update-metoden som beregner pose-korreksjon."""
 
-    def test_ingen_avvik_gir_null_korreksjon(self, pose_ctrl):
-        """Sjekk at lik mal-pose og naavaerende pose gir null korreksjon.
+    def test_ingen_avvik_gir_target_pose(self, pose_ctrl):
+        """Sjekk at lik mal-pose og naavaerende pose gir target tilbake.
 
-        Nar plattformen allerede er der den skal vaere, skal
-        korreksjonen vaere (tilnaermet) null for alle akser.
+        update() returnerer kommandert pose = target + PID-korreksjon.
+        Nar plattformen allerede er der den skal vaere er korreksjonen
+        null, og resultatet skal derfor vaere lik target.
         """
         target = Pose(
             translation=Vector3(10.0, 20.0, 30.0),
@@ -58,28 +59,51 @@ class TestPoseControllerUpdate:
         )
         result = pose_ctrl.update(target, current, dt=0.02)
         assert isinstance(result, Pose)
-        assert result.translation.x == pytest.approx(0.0, abs=1e-6)
-        assert result.translation.y == pytest.approx(0.0, abs=1e-6)
-        assert result.translation.z == pytest.approx(0.0, abs=1e-6)
-        assert result.rotation.x == pytest.approx(0.0, abs=1e-6)
-        assert result.rotation.y == pytest.approx(0.0, abs=1e-6)
-        assert result.rotation.z == pytest.approx(0.0, abs=1e-6)
+        assert result.translation.x == pytest.approx(10.0, abs=1e-6)
+        assert result.translation.y == pytest.approx(20.0, abs=1e-6)
+        assert result.translation.z == pytest.approx(30.0, abs=1e-6)
+        assert result.rotation.x == pytest.approx(5.0, abs=1e-6)
+        assert result.rotation.y == pytest.approx(10.0, abs=1e-6)
+        assert result.rotation.z == pytest.approx(15.0, abs=1e-6)
 
-    def test_avvik_gir_korreksjon(self, pose_ctrl):
-        """Sjekk at avvik mellom mal og naavaerende pose gir en korreksjon.
+    def test_avvik_gir_korreksjon_over_target(self, pose_ctrl):
+        """Sjekk at avvik gir kommandert pose forbi target.
 
-        Nar plattformen er lavere enn malet, skal Z-korreksjonen
-        vaere positiv (driv oppover).
+        Nar plattformen er lavere enn malet (target.z=10, current.z=0),
+        skal kommandert Z vaere stoerre enn target — feed-forward + PID
+        gir et tilleggsbidrag for aa drive systemet mot setpunktet.
         """
         target = Pose(translation=Vector3(0.0, 0.0, 10.0))
         current = Pose(translation=Vector3(0.0, 0.0, 0.0))
         result = pose_ctrl.update(target, current, dt=0.02)
-        assert result.translation.z > 0.0
+        assert result.translation.z > target.translation.z
 
     def test_returnerer_pose(self, pose_ctrl):
         """Sjekk at update() alltid returnerer en Pose-instans."""
         result = pose_ctrl.update(Pose(), Pose(), dt=0.02)
         assert isinstance(result, Pose)
+
+    def test_korreksjon_legges_paa_target_ikke_erstatter(self):
+        """Regresjonstest: PID-korreksjonen skal vaere additiv pa target.
+
+        Tidligere returnerte update() raa PID-utganger som pose, slik
+        at en stabil tilstand ga IK-input (0,0,0) — plattformen ville
+        gaa hjem uansett hva brukeren satte. Korrekt oppfoersel er
+        target + korreksjon.
+
+        Med target = (5,0,0,0,0,0), current = (5,0,0,0,0,0) og
+        klemme-grenser er korreksjonen 0, og resultatet skal vaere
+        target — ikke (0,0,0).
+        """
+        gains = PIDGains(kp=2.0, ki=0.5, kd=0.1,
+                         output_max=10.0, output_min=-10.0)
+        ctrl = PoseController(gains)
+        target = Pose(translation=Vector3(5.0, 0.0, 0.0))
+        current = Pose(translation=Vector3(5.0, 0.0, 0.0))
+        result = ctrl.update(target, current, dt=0.02)
+        assert result.translation.x == pytest.approx(5.0, abs=1e-6)
+        assert result.translation.y == pytest.approx(0.0, abs=1e-6)
+        assert result.translation.z == pytest.approx(0.0, abs=1e-6)
 
 
 class TestPoseControllerReset:
@@ -162,9 +186,10 @@ class TestPoseControllerPerAksePID:
             assert gains.kp == float(axis.value + 1)
 
     def test_set_pid_gains_pavirker_update(self):
-        """Sjekk at endret forsterkning faktisk pavirker PID-utgangen.
+        """Sjekk at endret forsterkning faktisk pavirker PID-korreksjonen.
 
-        Dobling av kp for Z-aksen skal gi dobbel korreksjon for Z.
+        update() returnerer target + korreksjon. Dobling av kp skal
+        doble korreksjonen (z_result - target.z), ikke selve resultatet.
         Bruker hoy output_max for a unnga saturering.
         """
         gains = PIDGains(kp=1.0, ki=0.0, kd=0.0, output_max=100.0, output_min=-100.0)
@@ -174,7 +199,7 @@ class TestPoseControllerPerAksePID:
 
         # Forste beregning med standard kp=1.0
         result_1 = ctrl.update(target, current, dt=0.02)
-        z_1 = result_1.translation.z
+        korreksjon_1 = result_1.translation.z - target.translation.z
 
         # Reset og dobble kp kun for Z
         ctrl.reset()
@@ -184,9 +209,9 @@ class TestPoseControllerPerAksePID:
         )
 
         result_2 = ctrl.update(target, current, dt=0.02)
-        z_2 = result_2.translation.z
+        korreksjon_2 = result_2.translation.z - target.translation.z
 
-        assert z_2 == pytest.approx(z_1 * 2.0, rel=1e-6)
+        assert korreksjon_2 == pytest.approx(korreksjon_1 * 2.0, rel=1e-6)
 
     def test_get_pid_gains_ugyldig_akse_gir_feil(self, pose_ctrl):
         """Sjekk at ugyldig akse-indeks gir feil."""

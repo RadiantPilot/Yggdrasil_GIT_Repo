@@ -46,7 +46,6 @@ class PlatformGeometry:
         self._platform_joint_angles = config.platform_joint_angles
         self._servo_horn_length = config.servo_horn_length
         self._rod_length = config.rod_length
-        self._home_height = config.home_height
         # Forhåndsberegn leddposisjoner
         self._base_joints = self._compute_circle_joints(
             self._base_radius, self._base_joint_angles
@@ -54,6 +53,12 @@ class PlatformGeometry:
         self._platform_joints_local = self._compute_circle_joints(
             self._platform_radius, self._platform_joint_angles
         )
+        # Bruk eksplisitt home_height fra config hvis satt; ellers
+        # avled fra geometri slik at YAML kan utelate feltet.
+        if config.home_height is None:
+            self._home_height = self.compute_home_height()
+        else:
+            self._home_height = config.home_height
 
     @staticmethod
     def _compute_circle_joints(radius: float, angles_deg: List[float]) -> List[Vector3]:
@@ -67,6 +72,29 @@ class PlatformGeometry:
                 0.0,
             ))
         return joints
+
+    def get_base_joint_angles(self) -> List[float]:
+        """Hent vinklene (i grader) for de 6 leddpunktene på bunnplaten.
+
+        Brukes f.eks. av InverseKinematics for å beregne servoens
+        effektive monteringsvinkel.
+
+        Returns:
+            Kopi av listen med 6 vinkler i grader.
+        """
+        return list(self._base_joint_angles)
+
+    def get_servo_horn_length(self) -> float:
+        """Hent servoarm-lengden i millimeter."""
+        return self._servo_horn_length
+
+    def get_rod_length(self) -> float:
+        """Hent stag-lengden i millimeter."""
+        return self._rod_length
+
+    def get_home_height(self) -> float:
+        """Hent hvilehøyden i millimeter (eksplisitt eller avledet)."""
+        return self._home_height
 
     def get_base_joints(self) -> List[Vector3]:
         """Hent posisjonene til de 6 leddpunktene på bunnplaten.

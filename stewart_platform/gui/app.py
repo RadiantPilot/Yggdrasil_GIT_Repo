@@ -140,6 +140,12 @@ def main() -> int:
     # Hovedvindu
     window = MainWindow(bridge)
     worker.snapshot_ready.connect(window.on_snapshot, Qt.QueuedConnection)
+    # Polling-feil (f.eks. midlertidig I2C-glitch) logges som event
+    # slik at brukeren ser at noe er galt — workeren kjører videre.
+    worker.error_occurred.connect(
+        lambda msg: bridge._log_event("FAIL", f"Polling-feil: {msg}"),
+        Qt.QueuedConnection,
+    )
     window.show()
 
     worker_thread.start()
@@ -165,6 +171,10 @@ def main() -> int:
         )
         button_worker.button_long_pressed.connect(
             window.focus_manager.on_long_pressed, Qt.QueuedConnection
+        )
+        button_worker.error_occurred.connect(
+            lambda msg: bridge._log_event("FAIL", f"Knappe-feil: {msg}"),
+            Qt.QueuedConnection,
         )
         button_thread.start()
 

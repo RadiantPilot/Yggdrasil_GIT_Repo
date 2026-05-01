@@ -32,7 +32,6 @@ class PIDController:
         self._gains = gains
         self._integral = 0.0
         self._previous_error = 0.0
-        self._previous_time = 0.0
 
     def update(self, setpoint: float, measurement: float, dt: float) -> float:
         """Beregn PID-utgangen for en kontrollsyklus.

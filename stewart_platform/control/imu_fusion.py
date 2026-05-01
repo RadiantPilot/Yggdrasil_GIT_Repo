@@ -39,7 +39,6 @@ class IMUFusion:
         """
         self._alpha = alpha
         self._current_orientation = Vector3()
-        self._last_time = 0.0
 
     def update(self, accel: Vector3, gyro: Vector3, dt: float) -> Vector3:
         """Oppdater orienteringsestimatet med nye sensordata.
@@ -88,4 +87,3 @@ class IMUFusion:
         Bør kalles ved oppstart eller etter rekalibrering.
         """
         self._current_orientation = Vector3()
-        self._last_time = 0.0

@@ -275,13 +275,17 @@ class SafetyMonitor:
             self._check_history.append(result)
             return result
 
-        # Bestem alvorlighetsgrad basert på antall brudd
+        # Bestem alvorlighetsgrad basert på antall brudd.
+        # 1 brudd: WARNING (logges, kommando kan fortsatt utføres
+        #   forsiktig av kaller om ønskelig).
+        # 2 brudd: ERROR (avvis kommando).
+        # 3+ brudd: CRITICAL (utløs nødstopp umiddelbart).
         if len(violations) >= 3:
             severity = SafetySeverity.CRITICAL
         elif len(violations) >= 2:
             severity = SafetySeverity.ERROR
         else:
-            severity = SafetySeverity.ERROR
+            severity = SafetySeverity.WARNING
 
         if severity == SafetySeverity.CRITICAL:
             self.trigger_e_stop("Kritisk sikkerhetsbrudd")

@@ -45,6 +45,11 @@ class InverseKinematics:
         """
         self._geometry = geometry
         self._servo_configs = servo_configs
+        # Cache leddvinklene lokalt slik at IK ikke trenger å nå inn
+        # i private felter på PlatformGeometry under hot path.
+        self._base_joint_angles = geometry.get_base_joint_angles()
+        self._servo_horn_length = geometry.get_servo_horn_length()
+        self._rod_length = geometry.get_rod_length()
 
     def solve(self, pose: Pose) -> List[float]:
         """Løs invers kinematikk for en gitt pose.
@@ -77,20 +82,6 @@ class InverseKinematics:
 
         return angles
 
-    def _compute_leg_lengths(self, pose: Pose) -> List[float]:
-        """Beregn beinlengder for en gitt pose.
-
-        Hjelpemetode som bruker PlatformGeometry til å finne
-        avstanden mellom hvert par av bunn- og toppledd.
-
-        Args:
-            pose: Ønsket pose.
-
-        Returns:
-            Liste med 6 beinlengder i millimeter.
-        """
-        return self._geometry.get_leg_lengths(pose)
-
     def _leg_length_to_servo_angle(
         self,
         leg_vector: Vector3,
@@ -117,10 +108,10 @@ class InverseKinematics:
         """
         sc = self._servo_configs[servo_index]
         # Servoens effektive retning = bunnleddets vinkel + monteringsoffset
-        base_angle = self._geometry._base_joint_angles[servo_index]
+        base_angle = self._base_joint_angles[servo_index]
         effective_mount_rad = math.radians(base_angle + sc.mounting_angle_deg)
-        a = self._geometry._servo_horn_length
-        s = self._geometry._rod_length
+        a = self._servo_horn_length
+        s = self._rod_length
 
         # Dekomponér beinvektor i servoens lokale koordinater
         L_r = leg_vector.x * math.cos(effective_mount_rad) + leg_vector.y * math.sin(effective_mount_rad)
@@ -140,8 +131,13 @@ class InverseKinematics:
             raise ValueError("Beinvektor har null lengde i servoplanet.")
 
         sin_val = M / R
-        # Klem verdien til [-1, 1] for å håndtere marginale tilfeller
-        # nær arbeidsområdets grense (numerisk toleranse ~2%).
+        # Tolerer opptil ~10 % overskridelse av sin-grensen før vi
+        # kaller posen uoppnåelig. Dette er bevisst romslig: for
+        # standardgeometrien (a=25, s=150, base/topp-radius 100/75)
+        # gir poser nær workspace-kanten sin-verdier opp mot 1.07,
+        # og strammere terskel ville forkaste poser som faktisk er
+        # mekanisk oppnåelige etter klemming. Klem deretter til
+        # [-1, 1] før asin().
         if abs(sin_val) > 1.1:
             raise ValueError(
                 f"Pose er ikke oppnåelig for servo {servo_index}: "
@@ -152,12 +148,10 @@ class InverseKinematics:
         delta = math.atan2(L_z, L_r)
         alpha = delta + math.asin(sin_val)
 
-        # Anvend servoens retning
-        angle_deg = math.degrees(alpha)
-        if sc.direction == -1:
-            angle_deg = 180.0 - angle_deg
-
-        return angle_deg
+        # Returner ren geometrisk vinkel; rotasjonsretning og offset
+        # håndteres av Servo.angle_to_pulse_us slik at samme verdi
+        # gir samme fysisk pose for både direction=+1 og direction=-1.
+        return math.degrees(alpha)
 
     def is_pose_reachable(self, pose: Pose) -> bool:
         """Sjekk om en pose er fysisk oppnåelig.
@@ -190,20 +184,21 @@ class InverseKinematics:
             Tuple med (min_pose, max_pose) som beskriver
             det omtrentlige arbeidsområdet.
         """
-        # Binærsøk for maksimal translasjon/rotasjon langs hver akse
-        def _max_along(axis: str, direction: float) -> float:
+        # Binærsøk for maksimal translasjon/rotasjon langs hver akse.
+        # axis_kind = "translation" | "rotation", component = "x"|"y"|"z".
+        def _max_along(axis_kind: str, component: str, direction: float) -> float:
             lo, hi = 0.0, 200.0
             for _ in range(50):
                 mid = (lo + hi) / 2.0
-                kwargs_t = {"x": 0.0, "y": 0.0, "z": 0.0}
-                kwargs_r = {"x": 0.0, "y": 0.0, "z": 0.0}
-                if axis in ("tx", "ty", "tz"):
-                    kwargs_t[axis[1]] = mid * direction
+                t = {"x": 0.0, "y": 0.0, "z": 0.0}
+                r = {"x": 0.0, "y": 0.0, "z": 0.0}
+                if axis_kind == "translation":
+                    t[component] = mid * direction
                 else:
-                    kwargs_r[axis[1]] = mid * direction
+                    r[component] = mid * direction
                 pose = Pose(
-                    translation=Vector3(**kwargs_t),
-                    rotation=Vector3(**kwargs_r),
+                    translation=Vector3(**t),
+                    rotation=Vector3(**r),
                 )
                 if self.is_pose_reachable(pose):
                     lo = mid
@@ -212,24 +207,24 @@ class InverseKinematics:
             return lo * direction
 
         min_trans = Vector3(
-            _max_along("tx", -1.0),
-            _max_along("ty", -1.0),
-            _max_along("tz", -1.0),
+            _max_along("translation", "x", -1.0),
+            _max_along("translation", "y", -1.0),
+            _max_along("translation", "z", -1.0),
         )
         max_trans = Vector3(
-            _max_along("tx", 1.0),
-            _max_along("ty", 1.0),
-            _max_along("tz", 1.0),
+            _max_along("translation", "x", 1.0),
+            _max_along("translation", "y", 1.0),
+            _max_along("translation", "z", 1.0),
         )
         min_rot = Vector3(
-            _max_along("rx", -1.0),
-            _max_along("ry", -1.0),
-            _max_along("rz", -1.0),
+            _max_along("rotation", "x", -1.0),
+            _max_along("rotation", "y", -1.0),
+            _max_along("rotation", "z", -1.0),
         )
         max_rot = Vector3(
-            _max_along("rx", 1.0),
-            _max_along("ry", 1.0),
-            _max_along("rz", 1.0),
+            _max_along("rotation", "x", 1.0),
+            _max_along("rotation", "y", 1.0),
+            _max_along("rotation", "z", 1.0),
         )
 
         return (

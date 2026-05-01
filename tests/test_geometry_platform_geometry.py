@@ -198,3 +198,20 @@ class TestHjemmehoyde:
         geo = PlatformGeometry(default_platform_config)
         height = geo.compute_home_height()
         assert height > 0.0
+
+    def test_eksplisitt_home_height_brukes(self, default_platform_config):
+        """Sjekk at eksplisitt home_height i config respekteres."""
+        default_platform_config.home_height = 99.5
+        geo = PlatformGeometry(default_platform_config)
+        assert geo._home_height == 99.5
+
+    def test_none_home_height_avledes_fra_geometri(self, default_platform_config):
+        """Sjekk at None i config faar geometrien til aa beregne hvilehoyden.
+
+        Dette unngaar dobbel kilde til sannhet: brukere som lar
+        feltet staa tomt (eller eksplisitt null i YAML) faar en
+        konsistent hvilehoyde fra rod_length og leddradiene.
+        """
+        default_platform_config.home_height = None
+        geo = PlatformGeometry(default_platform_config)
+        assert geo._home_height == pytest.approx(geo.compute_home_height())

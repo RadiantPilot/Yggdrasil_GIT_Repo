@@ -56,8 +56,8 @@ class ButtonConfig:
     i2c_address: int = 0x20
 
     # Hvilken bit i den returnerte byten som svarer til hvilken
-    # knapp. Default følger Knappekort.C: bit 0 = knapp 1, …,
-    # bit 4 = knapp 5.
+    # knapp. Default følger firmware/knappekort.ino: bit 0 = knapp 1,
+    # …, bit 4 = knapp 5.
     i2c_button_bits: List[int] = field(
         default_factory=lambda: [0, 1, 2, 3, 4]
     )

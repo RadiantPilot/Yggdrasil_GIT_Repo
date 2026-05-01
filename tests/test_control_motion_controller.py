@@ -14,6 +14,7 @@
 #   - GUI kaller start()/stop()/emergency_stop() for kontroll
 #   - GUI sjekker is_running() for statusvisning
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -172,6 +173,161 @@ class TestMotionControllerHome:
     def test_home_uten_init_gjor_ingenting(self, controller):
         """Sjekk at home() ikke krasjer naar servo_array er None."""
         controller.home()  # Skal ikke kaste exception
+
+
+class TestMotionControllerKontrollTraad:
+    """Tester for at start()/stop() faktisk eier en levende tråd.
+
+    Tidligere flippet start() bare et flagg; det kjørte aldri en
+    sløyfe. Disse testene laaser inn at:
+    - is_running() reflekterer en levende tråd, ikke et flagg.
+    - stop() avslutter tråden innen rimelig tid.
+    - shutdown() er idempotent.
+    """
+
+    def test_start_uten_init_kaster(self, controller):
+        """start() før initialize() skal kaste RuntimeError."""
+        with pytest.raises(RuntimeError):
+            controller.start()
+
+    def test_start_og_stop_traad(self, controller):
+        """start() spinner opp en levende tråd; stop() lar den avslutte."""
+        # Mock servo_array slik at start() ikke kaster og step() trygt
+        # kan kjøres uten hardware. Resten er None — step() er
+        # defensive mot det.
+        controller._servo_array = MagicMock()
+        controller._servo_array.set_angles = MagicMock()
+        controller._servo_array.detach_all = MagicMock()
+        controller._loop_rate_hz = 200.0  # rask tick i testen
+        controller.start()
+        try:
+            assert controller.is_running() is True
+        finally:
+            controller.stop()
+        assert controller.is_running() is False
+
+    def test_dobbel_start_lager_ikke_to_traader(self, controller):
+        """Kall til start() to ganger gjenbruker eksisterende tråd."""
+        controller._servo_array = MagicMock()
+        controller._servo_array.set_angles = MagicMock()
+        controller._servo_array.detach_all = MagicMock()
+        controller.start()
+        try:
+            traad_1 = controller._thread
+            controller.start()
+            traad_2 = controller._thread
+            assert traad_1 is traad_2
+        finally:
+            controller.stop()
+
+    def test_shutdown_er_idempotent(self, controller):
+        """shutdown() skal kunne kalles flere ganger uten å kaste."""
+        controller.shutdown()
+        controller.shutdown()  # Skal ikke kaste
+
+    def test_shutdown_stopper_traad(self, controller):
+        """shutdown() etter start() skal avslutte tråden."""
+        controller._servo_array = MagicMock()
+        controller._servo_array.set_angles = MagicMock()
+        controller._servo_array.detach_all = MagicMock()
+        controller.start()
+        controller.shutdown()
+        assert controller.is_running() is False
+
+    def test_loop_error_listener_kalles_ved_unntak(self, controller):
+        """En uventet feil i step() varsles til loop-error-lyttere.
+
+        Tidligere ville en exception bare drepe tråden uten varsel;
+        nå skal lyttere få selve exception-objektet og tråden gå
+        rett til e-stop.
+        """
+        feilet = []
+
+        def error_lytter(exc):
+            feilet.append(exc)
+
+        # IK-solver som alltid kaster — gir step() en garantert feil.
+        kraashende_ik = MagicMock()
+        kraashende_ik.solve = MagicMock(side_effect=RuntimeError("test-kraasj"))
+        controller._ik_solver = kraashende_ik
+        controller._servo_array = MagicMock()
+        controller._servo_array.set_angles = MagicMock()
+        controller._servo_array.detach_all = MagicMock()
+        controller._loop_rate_hz = 200.0
+        controller.add_loop_error_listener(error_lytter)
+        controller.start()
+        # Vent til tråden har stopped seg selv pga feilen.
+        for _ in range(50):
+            if not controller.is_running():
+                break
+            time.sleep(0.01)
+        assert controller.is_running() is False
+        assert len(feilet) >= 1
+        assert isinstance(feilet[0], RuntimeError)
+
+
+class TestMotionControllerSafetyListener:
+    """Tester for sikkerhetsvarsler fra step()-løkken.
+
+    Tidligere returnerte step() bare stille naar safety check feilet —
+    GUI hadde ingen maate aa oppdage at plattformen var fastfryst paa
+    grunn av et brudd. Listener-API-et tillater registrering av
+    callbacks som varsler om severity og bruddmeldinger.
+    """
+
+    def test_add_og_remove_safety_listener(self, controller):
+        """Sjekk at lyttere kan registreres og fjernes."""
+        def lytter(severity, violations):
+            pass
+        controller.add_safety_listener(lytter)
+        assert lytter in controller._safety_listeners
+        controller.remove_safety_listener(lytter)
+        assert lytter not in controller._safety_listeners
+
+    def test_listener_kalles_ved_brudd(self, controller):
+        """Sjekk at registrerte lyttere kalles naar step() ser et brudd."""
+        from stewart_platform.config.platform_config import SafetyConfig, ServoConfig
+        from stewart_platform.control.imu_fusion import IMUFusion
+        from stewart_platform.control.pose_controller import PoseController
+        from stewart_platform.geometry.platform_geometry import PlatformGeometry
+        from stewart_platform.kinematics.inverse_kinematics import InverseKinematics
+        from stewart_platform.safety.safety_monitor import SafetyMonitor
+
+        mottatt = []
+
+        def lytter(severity, violations):
+            mottatt.append((severity, list(violations)))
+
+        # Bygg minimum sett av komponenter slik at step() kan kjore
+        # uten ekte hardware. ServoArray erstattes med MagicMock.
+        controller._servo_array = MagicMock()
+        controller._servo_array.set_angles = MagicMock()
+        controller._ik_solver = InverseKinematics(
+            PlatformGeometry(controller._config),
+            controller._config.servo_configs,
+        )
+        controller._pose_controller = PoseController(controller._config.pid_gains)
+        controller._imu_fusion = IMUFusion()
+
+        # Stramme grenser slik at en hvilken som helst kommando blir et brudd.
+        stramme_grenser = SafetyConfig(
+            max_translation_mm=0.001,
+            max_rotation_deg=0.001,
+            servo_angle_margin_deg=200.0,  # Tvinger servo-vinkel-brudd
+        )
+        controller._safety_monitor = SafetyMonitor(
+            stramme_grenser, controller._config.servo_configs
+        )
+
+        controller.add_safety_listener(lytter)
+        # Driv en mal-pose stort nok til at IK-resultatet vil utlose
+        # vinkel- og pose-brudd.
+        controller._target_pose = Pose(translation=Vector3(0.0, 0.0, 5.0))
+        controller.step()
+
+        assert len(mottatt) >= 1
+        severity, violations = mottatt[0]
+        assert len(violations) >= 1
 
 
 class TestMotionControllerSetTargetPoseBool:
