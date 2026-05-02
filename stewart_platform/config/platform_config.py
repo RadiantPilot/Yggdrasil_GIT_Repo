@@ -109,6 +109,11 @@ class SafetyConfig:
     beveger seg utenfor trygge grenser.
     """
 
+    # Hvis False, hopper SafetyMonitor over alle sjekker (check_all
+    # returnerer alltid is_safe=True). Brukes mens man tuner geometri
+    # og PID — slå PÅ igjen så snart plattformen er trygg å kjøre med.
+    enabled: bool = True
+
     # Maksimal translasjon fra senter i millimeter.
     max_translation_mm: float = 50.0
 

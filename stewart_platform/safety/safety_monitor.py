@@ -270,6 +270,16 @@ class SafetyMonitor:
         Returns:
             SafetyCheckResult med status og eventuelle brudd.
         """
+        # Bypass alle sjekker hvis monitoren er slått av i config.
+        # Brukes under bringup/tuning der grensene må deaktiveres
+        # midlertidig. _last_pose oppdateres fortsatt slik at
+        # hastighetssjekken er korrekt når den slås på igjen.
+        if not self._config.enabled:
+            self._last_pose = pose
+            result = SafetyCheckResult(is_safe=True)
+            self._check_history.append(result)
+            return result
+
         violations: List[str] = []
 
         if not self.validate_pose(pose):
