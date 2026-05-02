@@ -311,10 +311,21 @@ class MotionController:
         else:
             correction = target
 
-        # 4: Invers kinematikk
-        if self._ik_solver is not None:
+        # 4: Invers kinematikk. Hvis posen ikke er oppnåelig
+        # (f.eks. utenfor arbeidsområdet, eller geometrien ikke er
+        # ferdig tunet enda), kaster IK ValueError. Da rapporterer
+        # vi dette som ERROR-brudd til lytterne og hopper over
+        # iterasjonen — løkken fortsetter å kjøre i stedet for å
+        # ta ned hele kontrolltråden ved første umulig kommando.
+        if self._ik_solver is None:
+            return
+        try:
             angles = self._ik_solver.solve(correction)
-        else:
+        except ValueError as ik_exc:
+            self._notify_safety_violations(
+                SafetySeverity.ERROR,
+                [f"IK avviste pose: {ik_exc}"],
+            )
             return
 
         # 5: Sikkerhetsvalidering. Bruddene varsles til registrerte
