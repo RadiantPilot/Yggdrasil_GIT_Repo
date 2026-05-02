@@ -76,6 +76,12 @@ class MotionController:
         self._loop_rate_hz = config.control_loop_rate_hz
         self._safety_listeners: List[SafetyViolationListener] = []
         self._error_listeners: List[LoopErrorListener] = []
+        # Teller for konsekutive IK-feil. Hvis IK feiler mange ganger
+        # på rad er det som regel et geometri-problem (ikke en kort
+        # transient), og vi e-stopper loopen for å unngå at høy-
+        # frekvent feillogging pakker Qt-signalkøen.
+        self._consecutive_ik_failures = 0
+        self._max_consecutive_ik_failures = 10
 
         # Trådhåndtering. Lock beskytter target/current pose mellom
         # GUI-tråd og kontrolltråd. Event signaliserer at løkken
@@ -322,11 +328,32 @@ class MotionController:
         try:
             angles = self._ik_solver.solve(correction)
         except ValueError as ik_exc:
-            self._notify_safety_violations(
-                SafetySeverity.ERROR,
-                [f"IK avviste pose: {ik_exc}"],
-            )
+            self._consecutive_ik_failures += 1
+            # E-stopp etter mange konsekutive feil — geometrien er
+            # sannsynligvis feil, og høy-frekvent loggspam kan henge
+            # GUI-en.
+            if self._consecutive_ik_failures >= self._max_consecutive_ik_failures:
+                self._notify_safety_violations(
+                    SafetySeverity.CRITICAL,
+                    [
+                        f"IK feilet {self._consecutive_ik_failures} ganger på rad — "
+                        f"sjekk geometri-config. Siste feil: {ik_exc}"
+                    ],
+                )
+                self.emergency_stop(
+                    reason=f"IK gjentatte feil ({self._consecutive_ik_failures}x): {ik_exc}"
+                )
+                return
+            # Logg kun den første feilen — å spamme signalkøen 50
+            # ganger per sekund kan gjøre GUI-en uresponsiv.
+            if self._consecutive_ik_failures == 1:
+                self._notify_safety_violations(
+                    SafetySeverity.ERROR,
+                    [f"IK avviste pose: {ik_exc}"],
+                )
             return
+        # IK lyktes — nullstill telleren.
+        self._consecutive_ik_failures = 0
 
         # 5: Sikkerhetsvalidering. Bruddene varsles til registrerte
         # lyttere (typisk GUI) slik at de blir synlige istedenfor å

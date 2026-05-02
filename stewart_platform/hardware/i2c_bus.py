@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import List
 
 
@@ -20,6 +21,12 @@ class I2CBus:
     Bruk som kontekstbehandler for automatisk lukking:
         with I2CBus(bus_number=1) as bus:
             bus.read_byte_data(0x40, 0x00)
+
+    Tråd-trygg: alle read/write-operasjoner er beskyttet av en
+    intern lås. Dette er nødvendig fordi GUI-en kjører flere
+    tråder (kontrollsløyfe, polling, knappekort) som alle kan
+    bruke samme I2C-buss. Konkurrerende ioctl-er på samme fd
+    kan ellers låse i2c-kernel-driveren og henge Raspberry Pi.
     """
 
     def __init__(self, bus_number: int) -> None:
@@ -33,6 +40,7 @@ class I2CBus:
         # uten smbus2 installert (kun feiler ved faktisk bruk).
         from smbus2 import SMBus
         self._bus = SMBus(bus_number)
+        self._lock = threading.Lock()
 
     def _ensure_open(self) -> None:
         """Kast tydelig feil hvis bussen allerede er lukket.
@@ -61,8 +69,9 @@ class I2CBus:
         Returns:
             Byteverdien som ble lest (0-255).
         """
-        self._ensure_open()
-        return self._bus.read_byte(address)
+        with self._lock:
+            self._ensure_open()
+            return self._bus.read_byte(address)
 
     def read_byte_data(self, address: int, register: int) -> int:
         """Les en enkelt byte fra et register på en I2C-enhet.
@@ -74,8 +83,9 @@ class I2CBus:
         Returns:
             Byteverdien som ble lest (0-255).
         """
-        self._ensure_open()
-        return self._bus.read_byte_data(address, register)
+        with self._lock:
+            self._ensure_open()
+            return self._bus.read_byte_data(address, register)
 
     def write_byte_data(self, address: int, register: int, value: int) -> None:
         """Skriv en enkelt byte til et register på en I2C-enhet.
@@ -85,8 +95,9 @@ class I2CBus:
             register: Registeradressen som skal skrives til.
             value: Byteverdien som skal skrives (0-255).
         """
-        self._ensure_open()
-        self._bus.write_byte_data(address, register, value)
+        with self._lock:
+            self._ensure_open()
+            self._bus.write_byte_data(address, register, value)
 
     def read_block_data(self, address: int, register: int, length: int) -> List[int]:
         """Les en blokk med bytes fra en I2C-enhet.
@@ -102,8 +113,9 @@ class I2CBus:
         Returns:
             Liste med byteverdier.
         """
-        self._ensure_open()
-        return list(self._bus.read_i2c_block_data(address, register, length))
+        with self._lock:
+            self._ensure_open()
+            return list(self._bus.read_i2c_block_data(address, register, length))
 
     def write_block_data(self, address: int, register: int, data: List[int]) -> None:
         """Skriv en blokk med bytes til en I2C-enhet.
@@ -113,17 +125,19 @@ class I2CBus:
             register: Startregisteradressen.
             data: Liste med byteverdier som skal skrives.
         """
-        self._ensure_open()
-        self._bus.write_i2c_block_data(address, register, list(data))
+        with self._lock:
+            self._ensure_open()
+            self._bus.write_i2c_block_data(address, register, list(data))
 
     def close(self) -> None:
         """Lukk I2C-bussforbindelsen og frigjør ressurser.
 
         Idempotent — trygg å kalle flere ganger.
         """
-        if self._bus is not None:
-            self._bus.close()
-            self._bus = None
+        with self._lock:
+            if self._bus is not None:
+                self._bus.close()
+                self._bus = None
 
     @property
     def is_closed(self) -> bool:
