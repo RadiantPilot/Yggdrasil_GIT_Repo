@@ -99,6 +99,22 @@ class SafetyMonitor:
             self._config.max_rotation_deg,
         )
 
+    def _servos_outside_margin(self, angles: List[float]) -> List[str]:
+        """Returner detaljerte beskrivelser av servoer utenfor margin.
+
+        Brukes av check_all for å bygge en informativ violation-melding
+        som inkluderer servo-indeks, faktisk vinkel og grenseverdiene.
+        """
+        margin = self._config.servo_angle_margin_deg
+        bad: List[str] = []
+        for i, angle in enumerate(angles):
+            sc = self._servo_configs[i]
+            lo = sc.min_angle_deg + margin
+            hi = sc.max_angle_deg - margin
+            if angle < lo or angle > hi:
+                bad.append(f"#{i}={angle:.1f}° [{lo:.0f}, {hi:.0f}]")
+        return bad
+
     def validate_servo_angles(self, angles: List[float]) -> bool:
         """Sjekk om alle servovinkler er innenfor mekaniske grenser.
 
@@ -257,16 +273,38 @@ class SafetyMonitor:
         violations: List[str] = []
 
         if not self.validate_pose(pose):
-            violations.append("Pose utenfor tillatte grenser.")
+            violations.append(
+                f"Pose utenfor grenser: trans={pose.translation.magnitude():.1f}mm "
+                f"(maks {self._config.max_translation_mm}), "
+                f"rot={pose.rotation.magnitude():.1f}° "
+                f"(maks {self._config.max_rotation_deg})."
+            )
 
-        if not self.validate_servo_angles(angles):
-            violations.append("Servovinkler utenfor tillatte grenser.")
+        bad_servos = self._servos_outside_margin(angles)
+        if bad_servos:
+            violations.append("Servovinkler utenfor margin: " + ", ".join(bad_servos))
 
         if not self.validate_imu_readings(accel):
-            violations.append("IMU-akselerasjon over feilterskel.")
+            violations.append(
+                f"IMU-akselerasjon over feilterskel: |a|={accel.magnitude():.2f} m/s² "
+                f"(terskel {self._config.imu_fault_threshold_g * 9.81:.2f})."
+            )
 
-        if not self.validate_velocity(pose, self._last_pose, dt):
-            violations.append("Hastighet over tillatt grense.")
+        delta_trans = pose.translation - self._last_pose.translation
+        delta_rot = pose.rotation - self._last_pose.rotation
+        if dt > 0:
+            lin_speed = delta_trans.magnitude() / dt
+            ang_speed = delta_rot.magnitude() / dt
+            if lin_speed > self._config.max_velocity_mm_per_s:
+                violations.append(
+                    f"Lineær hastighet over grense: {lin_speed:.1f} mm/s "
+                    f"(maks {self._config.max_velocity_mm_per_s})."
+                )
+            if ang_speed > self._config.max_angular_velocity_deg_per_s:
+                violations.append(
+                    f"Vinkelhastighet over grense: {ang_speed:.1f} °/s "
+                    f"(maks {self._config.max_angular_velocity_deg_per_s})."
+                )
 
         self._last_pose = pose
 

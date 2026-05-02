@@ -205,19 +205,28 @@ class MotionController:
             self._thread.join(timeout=2.0)
         self._thread = None
 
-    def emergency_stop(self) -> None:
+    def emergency_stop(self, reason: str | None = None) -> None:
         """Nødstopp: stopp sløyfen og frikoble alle servoer umiddelbart.
 
         Kalles ved sikkerhetsfeil eller manuell nødstopp.
         Alle servoer frikoblet øyeblikkelig slik at plattformen
         kan bevege seg fritt.
+
+        Args:
+            reason: Valgfri årsak. Hvis oppgitt brukes denne. Hvis
+                    None, og safety-monitoren allerede har en mer
+                    spesifikk grunn (f.eks. "Kritisk sikkerhetsbrudd"),
+                    beholdes den. Ellers brukes en generisk fallback.
         """
         # Signaliser stopp først, men ikke vent (vi kan kalles fra
         # innsiden av selve tråden via step() ved CRITICAL-brudd —
         # join på seg selv ville hengt for alltid).
         self._stop_event.set()
         if self._safety_monitor is not None:
-            self._safety_monitor.trigger_e_stop("Nødstopp fra MotionController")
+            if reason is not None:
+                self._safety_monitor.trigger_e_stop(reason)
+            elif self._safety_monitor.e_stop_reason is None:
+                self._safety_monitor.trigger_e_stop("Nødstopp fra MotionController")
         if self._servo_array is not None:
             self._servo_array.detach_all()
 
@@ -240,9 +249,10 @@ class MotionController:
                 # hardware-feil eller en programmeringsfeil. Gå
                 # rett til e-stop, varsle lyttere, og avslutt
                 # tråden i stedet for å spinne videre med ukjent
-                # tilstand.
+                # tilstand. Send selve unntaks-teksten som grunn
+                # slik at brukeren ser hva som faktisk feilet.
                 try:
-                    self.emergency_stop()
+                    self.emergency_stop(reason=f"Loop-feil: {exc!s}")
                 except BaseException:  # noqa: BLE001 — defensiv
                     pass
                 self._notify_loop_error(exc)

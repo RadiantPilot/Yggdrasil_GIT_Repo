@@ -12,7 +12,9 @@ hardware/ direkte. Alt går gjennom denne klassen.
 from __future__ import annotations
 
 import math
+import sys
 import time
+import traceback
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
@@ -125,6 +127,7 @@ class ControllerBridge(QObject):
         self._controller = MotionController(self._config)
         self._controller.initialize()
         self._controller.add_safety_listener(self._on_safety_violation)
+        self._controller.add_loop_error_listener(self._on_loop_error)
 
     def shutdown(self) -> None:
         """Rydde avslutning — stopp loop, frikoble servoer."""
@@ -382,6 +385,22 @@ class ControllerBridge(QObject):
     # ------------------------------------------------------------------
     # Sikkerhetsvarsler fra MotionController
     # ------------------------------------------------------------------
+
+    def _on_loop_error(self, exc: BaseException) -> None:
+        """Mottak av uventet unntak fra kontroll-tråden.
+
+        Logger hele tracebacken til event-loggen slik at brukeren
+        kan se hva som faktisk feilet — uten dette ville unntaket
+        bare ført til at tråden forsvant og e-stop-banneret viste
+        en generisk grunn.
+        """
+        tb = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )
+        self._log_event("FAIL", f"Kontroll-tråd kræsjet: {exc!r}")
+        # Skriv også tracebacken til stderr — nyttig når GUI-et
+        # kjøres fra terminal og brukeren feilsøker.
+        print(tb, file=sys.stderr)
 
     def _on_safety_violation(
         self,
