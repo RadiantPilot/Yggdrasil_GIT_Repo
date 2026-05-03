@@ -12,6 +12,7 @@ import time
 from typing import Callable, List, Optional, TYPE_CHECKING
 
 from ..geometry.pose import Pose
+from ..geometry.vector3 import Vector3
 from ..safety.safety_monitor import SafetySeverity
 
 if TYPE_CHECKING:
@@ -73,6 +74,12 @@ class MotionController:
         self._bus: I2CBus | None = None
         self._target_pose = Pose.home()
         self._current_pose = Pose.home()
+        # Siste IMU-data fra step(). Brukes av GUI-polling for å unngå
+        # konkurrerende I2C-lesninger mot kontroll-tråden. Beskyttes av
+        # samme _lock som target/current_pose.
+        self._last_accel = Vector3(0.0, 0.0, 9.81)
+        self._last_gyro = Vector3(0.0, 0.0, 0.0)
+        self._last_orientation = Vector3(0.0, 0.0, 0.0)
         self._loop_rate_hz = config.control_loop_rate_hz
         self._safety_listeners: List[SafetyViolationListener] = []
         self._error_listeners: List[LoopErrorListener] = []
@@ -148,6 +155,18 @@ class MotionController:
 
         # Gå til hjemmeposisjon
         self._servo_array.go_home()
+
+        # Pre-fyll IMU-cache slik at GUI-polling kan lese fra cache fra
+        # første tick — uten dette ville snapshot vise nuller helt til
+        # brukeren trykker Start og kontroll-tråden begynner å kjøre.
+        if self._base_imu is not None and self._imu_fusion is not None:
+            accel = self._base_imu.read_acceleration()
+            gyro = self._base_imu.read_angular_velocity()
+            orient = self._imu_fusion.update(accel, gyro, 1.0 / self._loop_rate_hz)
+            with self._lock:
+                self._last_accel = accel
+                self._last_gyro = gyro
+                self._last_orientation = orient
 
     def set_target_pose(self, pose: Pose) -> bool:
         """Sett ønsket mål-pose for plattformen.
@@ -293,8 +312,6 @@ class MotionController:
         5. Valider sikkerhet.
         6. Sett servovinkler.
         """
-        from ..geometry.vector3 import Vector3
-
         dt = 1.0 / self._loop_rate_hz
 
         # 1-2: Les bunnplate-IMU og oppdater fusjon
@@ -305,6 +322,9 @@ class MotionController:
             new_current = Pose(rotation=base_orientation)
             with self._lock:
                 self._current_pose = new_current
+                self._last_accel = accel
+                self._last_gyro = gyro
+                self._last_orientation = base_orientation
         else:
             accel = Vector3(0.0, 0.0, 9.81)
 
@@ -466,6 +486,17 @@ class MotionController:
         if self._servo_array is None:
             return []
         return self._servo_array.get_angles()
+
+    def get_imu_snapshot(self) -> tuple[Vector3, Vector3, Vector3]:
+        """Hent siste cachede IMU-verdier (accel, gyro, orientering).
+
+        Polling-worker bruker denne i stedet for å lese I2C selv,
+        slik at vi unngår konkurranse om I2C-lock med kontroll-tråden.
+        Cachen oppdateres ved hver step()-iterasjon, og pre-fylles av
+        initialize() slik at den har gyldige verdier fra første tick.
+        """
+        with self._lock:
+            return self._last_accel, self._last_gyro, self._last_orientation
 
     def is_running(self) -> bool:
         """Sjekk om kontrollsløyfen kjører.

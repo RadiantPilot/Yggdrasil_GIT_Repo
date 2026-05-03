@@ -176,16 +176,12 @@ class ControllerBridge(QObject):
             for axis in Axis:
                 pid_gains[axis] = pose_ctl.get_pid_gains(axis)
 
-        imu = ctl.base_imu
-        imu_accel = imu.read_acceleration() if imu else Vector3(0.0, 0.0, 9.81)
-        imu_gyro = imu.read_angular_velocity() if imu else Vector3(0.0, 0.0, 0.0)
-
-        fusion = ctl.imu_fusion
-        if fusion is not None:
-            ori = fusion.get_orientation()
-            orientation = (ori.x, ori.y, ori.z)
-        else:
-            orientation = (0.0, 0.0, 0.0)
+        # Bruk cachet IMU-data fra kontroll-tråden — unngår I2C-konkurranse
+        # på polling-tråden. Cachen oppdateres ved hver step()-iterasjon
+        # og pre-fylles av initialize() slik at vi har gyldige verdier
+        # selv før Start trykkes.
+        imu_accel, imu_gyro, ori = ctl.get_imu_snapshot()
+        orientation = (ori.x, ori.y, ori.z)
 
         latest_safety = None
         safety_results: list[SafetyCheckResult] = []

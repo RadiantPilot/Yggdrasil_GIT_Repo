@@ -46,6 +46,9 @@ class MainWindow(QMainWindow):
         """
         super().__init__()
         self._bridge = bridge
+        # Siste mottatte snapshot — gjenbrukes ved tab-bytte slik at vi
+        # ikke trenger å lese I2C fra GUI-tråden i _on_tab_changed.
+        self._last_snapshot: StateSnapshot | None = None
         self.setWindowTitle("Yggdrasil — Stewart-plattform")
         self.resize(1400, 900)
 
@@ -208,6 +211,7 @@ class MainWindow(QMainWindow):
         Alle tabs er likevel abonnenter — metoden `update_from_snapshot`
         er idempotent og kan trygt kalles oftere.
         """
+        self._last_snapshot = snapshot
         self._lbl_rate.setText(f"{snapshot.loop_frequency_hz:5.1f} Hz")
 
         current = self._tabs.currentWidget()
@@ -216,11 +220,19 @@ class MainWindow(QMainWindow):
 
     @Slot(int)
     def _on_tab_changed(self, index: int) -> None:
-        """Gi ny aktiv tab et snapshot med en gang så den ikke står tom."""
-        snapshot = self._bridge.get_snapshot()
+        """Gi ny aktiv tab siste mottatte snapshot.
+
+        Tidligere kalte vi `bridge.get_snapshot()` direkte her, men det
+        gjorde I2C-lesninger på GUI-tråden og kunne fryse event-loopen
+        ved konflikt med kontroll-tråden. Nå bruker vi den cachede
+        verdien fra siste polling-tick — om første tick ikke har kommet
+        enda, lar vi taben stå tom til neste snapshot ankommer.
+        """
+        if self._last_snapshot is None:
+            return
         widget = self._tabs.widget(index)
         if hasattr(widget, "update_from_snapshot"):
-            widget.update_from_snapshot(snapshot)
+            widget.update_from_snapshot(self._last_snapshot)
 
     @Slot()
     def _on_start_clicked(self) -> None:

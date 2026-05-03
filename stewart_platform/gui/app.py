@@ -50,8 +50,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rate",
         type=float,
-        default=30.0,
-        help="Oppdateringsfrekvens for GUI-polling i Hz (default 30).",
+        default=15.0,
+        help="Oppdateringsfrekvens for GUI-polling i Hz (default 15).",
     )
     parser.add_argument(
         "--theme",
