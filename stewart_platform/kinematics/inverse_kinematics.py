@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from ..config.platform_config import ServoConfig
 from ..geometry.platform_geometry import PlatformGeometry
@@ -29,6 +29,15 @@ class InverseKinematics:
     2. Beregn beinvektorer fra bunnplate-ledd til toppplate-ledd.
     3. Beregn nødvendig servovinkel for hvert bein basert på
        servoarmens lengde og beinets lengde.
+
+    Klemming: Hvis en pose ligger marginalt utenfor det fysisk
+    oppnåelige (sin-overskridelse eller vinkel utenfor mekanisk
+    grense), kaster ikke solve() lenger. I stedet "fryses"
+    løsningen til siste gyldige sett vinkler — det betyr i praksis
+    at servoene ikke beveger seg lengre i den retningen som er
+    umulig. Diagnostikk er tilgjengelig via last_solve_clamped /
+    last_clamped_mask. For streng oppnåelighetstest (workspace-
+    binærsøk osv.), bruk is_pose_reachable_exact().
     """
 
     def __init__(
@@ -50,12 +59,34 @@ class InverseKinematics:
         self._base_joint_angles = geometry.get_base_joint_angles()
         self._servo_horn_length = geometry.get_servo_horn_length()
         self._rod_length = geometry.get_rod_length()
+        # Siste fullt gyldige vinkler — brukes som "freeze"-fallback
+        # når ny pose er marginalt utenfor workspace.
+        self._last_valid_angles: Optional[List[float]] = None
+        self._last_solve_clamped: bool = False
+        self._last_clamped_mask: List[bool] = [False] * 6
+
+    @property
+    def last_solve_clamped(self) -> bool:
+        """True hvis siste solve() måtte klemme eller fryse."""
+        return self._last_solve_clamped
+
+    @property
+    def last_clamped_mask(self) -> List[bool]:
+        """Per-servo-flagg fra siste solve(): True for servoer der
+        sin-overskridelse eller vinkelgrense måtte klemmes."""
+        return list(self._last_clamped_mask)
 
     def solve(self, pose: Pose) -> List[float]:
         """Løs invers kinematikk for en gitt pose.
 
         Beregner de 6 servovinklene som plasserer toppplaten
-        i den ønskede posisjonen og orienteringen.
+        i den ønskede posisjonen og orienteringen. Hvis posen
+        ligger marginalt utenfor workspace blir resultatet
+        "frosset" på siste gyldige løsning (eller klemt til
+        grenseverdier ved aller første kall) — det vil si at
+        servoene ikke beveger seg videre i en umulig retning.
+        Bruk last_solve_clamped/last_clamped_mask for å se om
+        det skjedde.
 
         Args:
             pose: Ønsket 6-DOF pose for toppplaten.
@@ -64,29 +95,47 @@ class InverseKinematics:
             Liste med 6 servovinkler i grader.
 
         Raises:
-            ValueError: Hvis posen ikke er oppnåelig (f.eks.
-                        beinlengden overskrider fysiske grenser).
+            ValueError: Kun ved degenerert geometri (R < 1e-10 i
+                        servoplanet) — en ekte beregningsumulighet,
+                        ikke bare en pose utenfor workspace.
         """
         leg_vectors = self._geometry.get_leg_vectors(pose)
         angles: List[float] = []
+        clamped_mask: List[bool] = [False] * 6
 
         for i, leg_vec in enumerate(leg_vectors):
-            angle = self._leg_length_to_servo_angle(leg_vec, i)
+            angle, sin_clamped = self._leg_length_to_servo_angle(leg_vec, i)
             sc = self._servo_configs[i]
-            if not (sc.min_angle_deg <= angle <= sc.max_angle_deg):
-                raise ValueError(
-                    f"Servo {i}: beregnet vinkel {angle:.1f}° er utenfor "
-                    f"grensene [{sc.min_angle_deg}, {sc.max_angle_deg}]."
-                )
+            angle_clamped = False
+            if angle < sc.min_angle_deg:
+                angle = sc.min_angle_deg
+                angle_clamped = True
+            elif angle > sc.max_angle_deg:
+                angle = sc.max_angle_deg
+                angle_clamped = True
+            clamped_mask[i] = sin_clamped or angle_clamped
             angles.append(angle)
 
+        self._last_clamped_mask = clamped_mask
+        self._last_solve_clamped = any(clamped_mask)
+
+        if self._last_solve_clamped:
+            # "Freeze" på siste gyldige løsning slik at servoene ikke
+            # presses lengre i en umulig retning. Ved aller første
+            # kall finnes ingen forrige løsning — bruk de klemte
+            # vinklene som beste tilnærming.
+            if self._last_valid_angles is not None:
+                return list(self._last_valid_angles)
+            return list(angles)
+
+        self._last_valid_angles = list(angles)
         return angles
 
     def _leg_length_to_servo_angle(
         self,
         leg_vector: Vector3,
         servo_index: int,
-    ) -> float:
+    ) -> Tuple[float, bool]:
         """Konverter en beinvektor til servovinkel.
 
         Bruker geometrisk analyse av servohornets lengde,
@@ -104,7 +153,15 @@ class InverseKinematics:
             servo_index: Indeks for servoen (0-5).
 
         Returns:
-            Servovinkel i grader.
+            Tuple (vinkel_deg, sin_klemt). sin_klemt er True hvis
+            sin-verdien måtte klemmes til [-1, 1] for at asin()
+            skulle være definert (dvs. posen er marginalt utenfor
+            workspace fra denne servoens synsvinkel).
+
+        Raises:
+            ValueError: Når leg-vektorens komponent i servoplanet er
+                        null (R < 1e-10) — en ekte degenerert
+                        geometrisk situasjon.
         """
         sc = self._servo_configs[servo_index]
         # Servoens effektive retning = bunnleddets vinkel + monteringsoffset
@@ -131,18 +188,11 @@ class InverseKinematics:
             raise ValueError("Beinvektor har null lengde i servoplanet.")
 
         sin_val = M / R
-        # Tolerer opptil ~10 % overskridelse av sin-grensen før vi
-        # kaller posen uoppnåelig. Dette er bevisst romslig: for
-        # standardgeometrien (a=25, s=150, base/topp-radius 100/75)
-        # gir poser nær workspace-kanten sin-verdier opp mot 1.07,
-        # og strammere terskel ville forkaste poser som faktisk er
-        # mekanisk oppnåelige etter klemming. Klem deretter til
-        # [-1, 1] før asin().
-        if abs(sin_val) > 1.1:
-            raise ValueError(
-                f"Pose er ikke oppnåelig for servo {servo_index}: "
-                f"sin = {sin_val:.4f}."
-            )
+        # Klem alltid sin_val til [-1, 1] slik at asin() er definert.
+        # Hvis klemming skjer markerer vi det med sin_clamped=True;
+        # solve() bruker dette til å avgjøre om hele løsningen er
+        # "klemt" og dermed bør fryses i stedet for sendt videre.
+        sin_clamped = sin_val < -1.0 or sin_val > 1.0
         sin_val = max(-1.0, min(1.0, sin_val))
 
         delta = math.atan2(L_z, L_r)
@@ -151,27 +201,55 @@ class InverseKinematics:
         # Returner ren geometrisk vinkel; rotasjonsretning og offset
         # håndteres av Servo.angle_to_pulse_us slik at samme verdi
         # gir samme fysisk pose for både direction=+1 og direction=-1.
-        return math.degrees(alpha)
+        return math.degrees(alpha), sin_clamped
 
     def is_pose_reachable(self, pose: Pose) -> bool:
         """Sjekk om en pose er fysisk oppnåelig.
 
-        Verifiserer at alle 6 beinlengder og servovinkler er
-        innenfor fysiske og mekaniske grenser. Sjekker blant annet:
-        - Beinlengde innenfor (rod_length - horn_length) og (rod_length + horn_length).
-        - Servovinkler innenfor min_angle_deg og max_angle_deg.
+        Etter at solve() ble klemmebasert returnerer denne metoden
+        nå det samme som is_pose_reachable_exact() — en streng
+        test av om alle 6 beinlengder og servovinkler er innenfor
+        grensene uten klemming. Dette bevarer eksisterende kontrakt
+        for kallere som bruker metoden til workspace-visualisering.
 
         Args:
             pose: Posen som skal sjekkes.
 
         Returns:
-            True hvis posen kan oppnås.
+            True hvis posen kan oppnås uten klemming.
+        """
+        return self.is_pose_reachable_exact(pose)
+
+    def is_pose_reachable_exact(self, pose: Pose) -> bool:
+        """Streng oppnåelighetstest uten klemming.
+
+        Brukes av get_workspace_bounds() og andre kallere som må
+        vite om en pose er *fysisk* oppnåelig (ikke bare hvilket
+        klemt resultat solve() ville returnere). Returnerer False
+        både ved sin-overskridelse i noen servo og ved vinkel
+        utenfor [min_angle_deg, max_angle_deg].
+
+        Args:
+            pose: Posen som skal sjekkes.
+
+        Returns:
+            True hvis alle 6 servoer kan løses uten klemming.
         """
         try:
-            self.solve(pose)
-            return True
+            leg_vectors = self._geometry.get_leg_vectors(pose)
         except ValueError:
             return False
+        for i, leg_vec in enumerate(leg_vectors):
+            try:
+                angle, sin_clamped = self._leg_length_to_servo_angle(leg_vec, i)
+            except ValueError:
+                return False
+            if sin_clamped:
+                return False
+            sc = self._servo_configs[i]
+            if not (sc.min_angle_deg <= angle <= sc.max_angle_deg):
+                return False
+        return True
 
     def get_workspace_bounds(self) -> Tuple[Pose, Pose]:
         """Estimer arbeidsområdets grenser.
@@ -200,7 +278,10 @@ class InverseKinematics:
                     translation=Vector3(**t),
                     rotation=Vector3(**r),
                 )
-                if self.is_pose_reachable(pose):
+                # Bruk exact-varianten her — solve() klemmer og ville
+                # alltid returnert et resultat, så binærsøket trenger
+                # den strenge sjekken for å finne reell workspace-kant.
+                if self.is_pose_reachable_exact(pose):
                     lo = mid
                 else:
                     hi = mid

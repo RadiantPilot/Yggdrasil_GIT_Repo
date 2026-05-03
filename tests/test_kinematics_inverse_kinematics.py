@@ -110,15 +110,47 @@ class TestInverseKinematiksSolve:
         # Vinklene skal ikke alle vaere like (plattformen er vippet)
         assert not all(v == pytest.approx(vinkler[0], abs=0.1) for v in vinkler)
 
-    def test_solve_uoppnaelig_pose_kaster_feil(self, ik_solver):
-        """Sjekk at en umulig pose kaster ValueError.
+    def test_solve_uoppnaelig_pose_klemmer(self, ik_solver):
+        """Sjekk at en umulig pose klemmes til workspace-grensen.
 
-        En ekstrem pose der beinlengdene overstiger fysiske grenser
-        skal gi en tydelig feilmelding.
+        Etter at IK gikk over til klemme/freeze-modus skal en pose
+        utenfor det fysisk oppnaelige IKKE lenger kaste ValueError.
+        I stedet skal solve() returnere 6 vinkler innenfor [min, max]
+        og markere at klemming har skjedd via last_solve_clamped.
         """
         pose = Pose(translation=Vector3(0.0, 0.0, 500.0))  # Altfor hoyt
-        with pytest.raises(ValueError):
-            ik_solver.solve(pose)
+        vinkler = ik_solver.solve(pose)
+        assert len(vinkler) == 6
+        for i, vinkel in enumerate(vinkler):
+            sc = ik_solver._servo_configs[i]
+            assert sc.min_angle_deg <= vinkel <= sc.max_angle_deg
+        assert ik_solver.last_solve_clamped is True
+        assert any(ik_solver.last_clamped_mask)
+
+    def test_solve_degenerert_geometri_kaster(self, default_platform_config):
+        """Sjekk at degenerert geometri (R < 1e-10) fortsatt kaster.
+
+        R-naer-null er ekte beregningsumulighet, ikke bare en pose
+        utenfor workspace, og skal forbli en hard feil. Vi konstruerer
+        situasjonen ved aa nullstille horn- og stag-parametre slik
+        at hele leg-vektoren havner med null-lengde i servoplanet.
+        """
+        from copy import deepcopy
+        from stewart_platform.geometry.platform_geometry import PlatformGeometry
+
+        cfg = deepcopy(default_platform_config)
+        # Naar bunn-leddvinkel og topp-leddvinkel er like og radiusene
+        # er like, blir L_r=L_z=0 ved Pose.home() => R<1e-10.
+        cfg.base_radius = 50.0
+        cfg.platform_radius = 50.0
+        cfg.base_joint_angles = [0.0] * 6
+        cfg.platform_joint_angles = [0.0] * 6
+        cfg.home_height = 0.0  # Toppledd og bunnledd sammenfaller
+        geo = PlatformGeometry(cfg)
+        ik = InverseKinematics(geo, cfg.servo_configs)
+
+        with pytest.raises(ValueError, match="null lengde"):
+            ik.solve(Pose.home())
 
 
 class TestPoseReachability:
@@ -150,6 +182,19 @@ class TestPoseReachability:
         """Sjekk at en ekstrem pose (langt utenfor arbeidsomradet) ikke er oppnaelig."""
         pose = Pose(translation=Vector3(500.0, 500.0, 500.0))
         assert ik_solver.is_pose_reachable(pose) is False
+
+    def test_is_pose_reachable_exact_returnerer_false_for_uoppnaelig(self, ik_solver):
+        """Sjekk at is_pose_reachable_exact() er streng (ingen klemming).
+
+        get_workspace_bounds() bruker exact-varianten for binaersoek,
+        og hvis den returnerte True for klemte poser ville arbeids-
+        omradet feilberegnet til hi=200 mm.
+        """
+        pose = Pose(translation=Vector3(0.0, 0.0, 500.0))
+        assert ik_solver.is_pose_reachable_exact(pose) is False
+        # Hjemmeposen skal vaere reachable_exact i samme test for
+        # aa bekrefte at metoden faktisk er funksjonell.
+        assert ik_solver.is_pose_reachable_exact(Pose.home()) is True
 
 
 class TestWorkspaceBounds:

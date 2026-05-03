@@ -76,12 +76,15 @@ class MotionController:
         self._loop_rate_hz = config.control_loop_rate_hz
         self._safety_listeners: List[SafetyViolationListener] = []
         self._error_listeners: List[LoopErrorListener] = []
-        # Teller for konsekutive IK-feil. Hvis IK feiler mange ganger
-        # på rad er det som regel et geometri-problem (ikke en kort
-        # transient), og vi e-stopper loopen for å unngå at høy-
-        # frekvent feillogging pakker Qt-signalkøen.
+        # Teller for konsekutive IK-feil (kun ekte unntak, ikke
+        # klemming). IK klemmer/fryser nå marginale poser i stedet
+        # for å kaste, så denne telleren utløses primært av
+        # degenerert geometri (R < 1e-10). Brukes ikke lenger til
+        # e-stop — kun til diagnostikk og throttlet ERROR-varsling.
         self._consecutive_ik_failures = 0
-        self._max_consecutive_ik_failures = 10
+        # Forrige tick sin klemmingstilstand. Brukes for å varsle
+        # GUI kun ved tilstandsovergang (ikke 50 Hz spam).
+        self._previous_clamp_state = False
 
         # Trådhåndtering. Lock beskytter target/current pose mellom
         # GUI-tråd og kontrolltråd. Event signaliserer at løkken
@@ -317,43 +320,53 @@ class MotionController:
         else:
             correction = target
 
-        # 4: Invers kinematikk. Hvis posen ikke er oppnåelig
-        # (f.eks. utenfor arbeidsområdet, eller geometrien ikke er
-        # ferdig tunet enda), kaster IK ValueError. Da rapporterer
-        # vi dette som ERROR-brudd til lytterne og hopper over
-        # iterasjonen — løkken fortsetter å kjøre i stedet for å
-        # ta ned hele kontrolltråden ved første umulig kommando.
+        # 4: Invers kinematikk. IK klemmer/fryser nå marginale poser
+        # automatisk og kaster bare ValueError ved degenerert
+        # geometri. Når klemming skjer leser vi last_solve_clamped
+        # for å gi GUI en WARNING ved tilstandsovergang.
         if self._ik_solver is None:
             return
         try:
             angles = self._ik_solver.solve(correction)
         except ValueError as ik_exc:
             self._consecutive_ik_failures += 1
-            # E-stopp etter mange konsekutive feil — geometrien er
-            # sannsynligvis feil, og høy-frekvent loggspam kan henge
-            # GUI-en.
-            if self._consecutive_ik_failures >= self._max_consecutive_ik_failures:
-                self._notify_safety_violations(
-                    SafetySeverity.CRITICAL,
-                    [
-                        f"IK feilet {self._consecutive_ik_failures} ganger på rad — "
-                        f"sjekk geometri-config. Siste feil: {ik_exc}"
-                    ],
-                )
-                self.emergency_stop(
-                    reason=f"IK gjentatte feil ({self._consecutive_ik_failures}x): {ik_exc}"
-                )
-                return
             # Logg kun den første feilen — å spamme signalkøen 50
-            # ganger per sekund kan gjøre GUI-en uresponsiv.
+            # ganger per sekund kan gjøre GUI-en uresponsiv. Vi
+            # e-stopper ikke lenger ved gjentatte feil; klemming gjør
+            # det stort sett unødvendig, og en e-stop som ikke kan
+            # nullstilles fra GUI-en er verre enn å la operatøren
+            # se WARNING-en og ta affære.
             if self._consecutive_ik_failures == 1:
                 self._notify_safety_violations(
-                    SafetySeverity.ERROR,
-                    [f"IK avviste pose: {ik_exc}"],
+                    SafetySeverity.WARNING,
+                    [f"IK kastet unntak (degenerert geometri?): {ik_exc}"],
                 )
             return
-        # IK lyktes — nullstill telleren.
+        # IK lyktes — nullstill teller for ekte unntak.
         self._consecutive_ik_failures = 0
+
+        # Klemming-deteksjon: varsle kun ved tilstandsovergang slik at
+        # vi ikke pakker Qt-signalkøen. Når klemming starter, send
+        # WARNING med hvilke servoer som er klemt. Når den slutter,
+        # send INFO-aktig WARNING for å indikere at vi er tilbake i
+        # workspace.
+        clamped_now = self._ik_solver.last_solve_clamped
+        if clamped_now and not self._previous_clamp_state:
+            mask = self._ik_solver.last_clamped_mask
+            klemte = [str(i) for i, c in enumerate(mask) if c]
+            self._notify_safety_violations(
+                SafetySeverity.WARNING,
+                [
+                    f"IK klemmer pose — servo(er) {','.join(klemte)} "
+                    f"holdes på siste gyldige posisjon."
+                ],
+            )
+        elif not clamped_now and self._previous_clamp_state:
+            self._notify_safety_violations(
+                SafetySeverity.WARNING,
+                ["IK klemming opphørt — pose tilbake innenfor workspace."],
+            )
+        self._previous_clamp_state = clamped_now
 
         # 5: Sikkerhetsvalidering. Bruddene varsles til registrerte
         # lyttere (typisk GUI) slik at de blir synlige istedenfor å

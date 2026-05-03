@@ -121,8 +121,8 @@ pid_gains:
   kp: 1.0                     # Proporsjonal forsterkning
   ki: 0.0                     # Integral forsterkning (start med 0)
   kd: 0.0                     # Derivat forsterkning (start med 0)
-  output_min: -10.0            # Maks korreksjon nedover per tick
-  output_max: 10.0             # Maks korreksjon oppover per tick
+  output_min: -5.0             # Maks korreksjon nedover per tick
+  output_max: 5.0              # Maks korreksjon oppover per tick
   integral_limit: 100.0        # Anti-windup grense
 
 # Kontrollsløyfe-frekvens i Hz.
@@ -135,7 +135,7 @@ safety_config:
   max_rotation_deg: 30.0               # Maks rotasjon fra nøytral
   max_velocity_mm_per_s: 100.0         # Maks lineær hastighet
   max_angular_velocity_deg_per_s: 60.0 # Maks vinkelhastighet
-  servo_angle_margin_deg: 5.0          # Sikkerhetsmargin fra mekanisk grense
+  servo_angle_margin_deg: 1.0          # Sikkerhetsmargin fra mekanisk grense
   watchdog_timeout_s: 1.0              # Watchdog-tidsgrense
   imu_fault_threshold_g: 4.0           # Terskel for IMU-feildeteksjon
 
