@@ -1,10 +1,8 @@
 # GUI
 
-Bruksanvisning for Yggdrasil-GUI-et til Stewart-plattformen.
-
+Dette dokumentet er en introduksjon til GUI for prosjekt Yggdrasil
 
 ## Starte GUI
-
 Med hardware:
 
 ```bash
@@ -22,7 +20,7 @@ Argumenter:
 - `--mock` — simulerer alt av hardware (servoer, IMU, knapper)
 - `--config PATH` — annen YAML-fil enn `config/default_config.yaml`
 - `--rate 30` — polling-frekvens i Hz (hvor ofte GUI henter ny tilstand)
-- `--theme light` eller `--theme dark` — startstema
+- `--theme light` eller `--theme dark` — startstema (`--theme dark` er satt som default)
 
 
 
@@ -39,7 +37,7 @@ Vinduet har tre deler: topbar øverst, faner i midten, statusbar nederst.
 | Stopp | Stopper sløyfen (servoer holder posisjonen sin) |
 | Home | Setter mål-pose til (0,0,0) og kjører servoer til hvilevinkel |
 | Modus | Viser `SIMULERT` eller `HARDWARE` |
-| Hz | Viser faktisk loop-frekvens |
+| Hz | Viser loop-frekvensen |
 | E-STOP (F1) | Nødstopp — frikobler servoer umiddelbart |
 
 E-STOP kan også utløses med `F1`. Reset gjøres fra Sikkerhet-fanen.
@@ -47,12 +45,12 @@ E-STOP kan også utløses med `F1`. Reset gjøres fra Sikkerhet-fanen.
 
 ### Faner
 
-1. **Oversikt** — sanntidsstatus: pose, servovinkler, IMU, hendelseslogg
+1. **Oversikt** — generell oversikt: pose, servovinkler, IMU, hendelseslogg
 2. **Pose-kontroll** — sliders for X, Y, Z, roll, pitch, yaw
 3. **PID-tuning** — kp/ki/kd per akse, step-respons-plot
 4. **IMU** — akselerometer, gyro, kalibreringsknapper
 5. **Konfig** — geometri, servoer, I2C-adresser, lagre/laste YAML
-6. **Sikkerhet** — grenser, bruddhistorikk, reset av E-STOP
+6. **Sikkerhet** — grenser, historikk, reset av E-STOP
 
 
 ### Statusbar
@@ -66,9 +64,9 @@ Det fysiske knappekortet (eller piltastene + Enter) styrer fokus mellom fanene o
 
 
 
-## Hva skjer under panseret
+## Hva skjer egentlig
 
-GUI-et snakker aldri direkte med servoer eller IMU. Alt går via `ControllerBridge`, som er det eneste laget som kjenner til hardware.
+GUI-et snakker aldri direkte med servoer eller IMU. Alt går via `ControllerBridge`, som er den eneste delen av GUI som kjenner til hardware.
 
 Tre tråder kjører samtidig:
 
@@ -81,7 +79,7 @@ GUI-et oppdaterer kun den synlige fanen for å spare CPU.
 
 ### Mock vs hardware
 
-`--mock` bytter ut hele hardware-laget med simulert data — sinusbevegelse på pose, gyngende servovinkler, IMU rundt 9.81 m/s². Brukes på utviklings-PC eller før servoer er koblet til.
+`--mock` bytter ut hele hardware-laget med simulert data — sinusbevegelse på pose, gyngende servovinkler, IMU rundt 9.81 m/s². 
 
 
 
@@ -94,7 +92,7 @@ Meldinger dukker opp i hendelsesloggen (Oversikt-fanen) og i statusbaren. `INFO`
 
 - **`Kontrollsløyfe startet` / `stoppet`** — Start- eller Stopp-knappen er trykket.
 - **`Kontroll-tråd kræsjet: ...`** — Et uventet unntak i styringssløyfen. Hele tracebacken skrives til terminalen — sjekk der for detaljer. E-STOP utløses automatisk.
-- **`Polling-feil: ...`** — En av snapshot-avlesningene feilet (typisk midlertidig I2C-glitch). Workeren kjører videre, men hvis det kommer ofte er det noe galt med bussen.
+- **`Polling-feil: ...`** — En av snapshot-avlesningene feilet (kan komme av feil med I2C). Workeren kjører videre, men hvis det kommer ofte er det noe galt med bussen.
 
 
 ### Sikkerhet
@@ -102,7 +100,7 @@ Meldinger dukker opp i hendelsesloggen (Oversikt-fanen) og i statusbaren. `INFO`
 - **`E-STOP: <grunn>`** — Nødstopp utløst. Servoene er frikoblet. Reset i Sikkerhet-fanen.
 - **`[CRITICAL] <brudd>`** — Sikkerhetsbrudd som utløste E-STOP (f.eks. servovinkel utenfor grense).
 - **`[WARNING] <brudd>`** — Mindre alvorlig brudd, sløyfen kjører videre, men noter det.
-- **`E-STOP tilbakestilt`** — Bruker har kvittert ut feilen.
+- **`E-STOP tilbakestilt`** — Bruker har kvittert feilen.
 
 
 ### Konfig
