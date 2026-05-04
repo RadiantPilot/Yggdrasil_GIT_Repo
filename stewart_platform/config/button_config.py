@@ -67,7 +67,6 @@ class ButtonConfig:
     # som ikke har sitt eget naturlige steg.
     nudge_steps: Dict[str, float] = field(
         default_factory=lambda: {
-            "translation_mm": 1.0,
             "rotation_deg": 1.0,
             "pid_kp": 0.05,
             "pid_ki": 0.05,

@@ -223,7 +223,7 @@ class InverseKinematics:
     def is_pose_reachable_exact(self, pose: Pose) -> bool:
         """Streng oppnåelighetstest uten klemming.
 
-        Brukes av get_workspace_bounds() og andre kallere som må
+        Brukes av kallere som må
         vite om en pose er *fysisk* oppnåelig (ikke bare hvilket
         klemt resultat solve() ville returnere). Returnerer False
         både ved sin-overskridelse i noen servo og ved vinkel
@@ -251,64 +251,3 @@ class InverseKinematics:
                 return False
         return True
 
-    def get_workspace_bounds(self) -> Tuple[Pose, Pose]:
-        """Estimer arbeidsområdets grenser.
-
-        Beregner en tilnærming av minimums- og maksimums-posen
-        (translasjon og rotasjon) som plattformen kan oppnå.
-        Nyttig for å sette opp SafetyConfig-grenser.
-
-        Returns:
-            Tuple med (min_pose, max_pose) som beskriver
-            det omtrentlige arbeidsområdet.
-        """
-        # Binærsøk for maksimal translasjon/rotasjon langs hver akse.
-        # axis_kind = "translation" | "rotation", component = "x"|"y"|"z".
-        def _max_along(axis_kind: str, component: str, direction: float) -> float:
-            lo, hi = 0.0, 200.0
-            for _ in range(50):
-                mid = (lo + hi) / 2.0
-                t = {"x": 0.0, "y": 0.0, "z": 0.0}
-                r = {"x": 0.0, "y": 0.0, "z": 0.0}
-                if axis_kind == "translation":
-                    t[component] = mid * direction
-                else:
-                    r[component] = mid * direction
-                pose = Pose(
-                    translation=Vector3(**t),
-                    rotation=Vector3(**r),
-                )
-                # Bruk exact-varianten her — solve() klemmer og ville
-                # alltid returnert et resultat, så binærsøket trenger
-                # den strenge sjekken for å finne reell workspace-kant.
-                if self.is_pose_reachable_exact(pose):
-                    lo = mid
-                else:
-                    hi = mid
-            return lo * direction
-
-        min_trans = Vector3(
-            _max_along("translation", "x", -1.0),
-            _max_along("translation", "y", -1.0),
-            _max_along("translation", "z", -1.0),
-        )
-        max_trans = Vector3(
-            _max_along("translation", "x", 1.0),
-            _max_along("translation", "y", 1.0),
-            _max_along("translation", "z", 1.0),
-        )
-        min_rot = Vector3(
-            _max_along("rotation", "x", -1.0),
-            _max_along("rotation", "y", -1.0),
-            _max_along("rotation", "z", -1.0),
-        )
-        max_rot = Vector3(
-            _max_along("rotation", "x", 1.0),
-            _max_along("rotation", "y", 1.0),
-            _max_along("rotation", "z", 1.0),
-        )
-
-        return (
-            Pose(translation=min_trans, rotation=min_rot),
-            Pose(translation=max_trans, rotation=max_rot),
-        )

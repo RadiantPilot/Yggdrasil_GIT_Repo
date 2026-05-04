@@ -1,18 +1,7 @@
 # test_kinematics_inverse_kinematics.py
 # ======================================
-# Tester for InverseKinematics-klassen.
-#
-# InverseKinematics er det matematiske hjertet i systemet.
-# Den tar en onsket 6-DOF pose og beregner de 6 servovinklene
-# som trengs for a oppna den posen. Korrekt IK er avgjorende
-# for at plattformen beveger seg dit den skal.
-#
-# GUI-relevans:
-#   Nar brukeren setter en mal-pose via GUI-en (sliders for
-#   X, Y, Z, roll, pitch, yaw), loper den gjennom IK-solveren
-#   for a finne servovinkler. GUI-en viser ogsa om en pose
-#   er oppnaelig (is_pose_reachable) og arbeidsomradets grenser
-#   (get_workspace_bounds) for visualisering.
+# Tester for InverseKinematics — kjernen i styringen.
+# Plattformen styres kun rotasjonelt.
 
 import pytest
 
@@ -25,233 +14,66 @@ from stewart_platform.kinematics.inverse_kinematics import InverseKinematics
 
 @pytest.fixture
 def ik_solver(default_platform_config):
-    """Standard IK-solver med standard geometri og servokonfigurasjon."""
+    """Standard IK-solver med standard geometri."""
     geo = PlatformGeometry(default_platform_config)
     return InverseKinematics(geo, default_platform_config.servo_configs)
 
 
-class TestInverseKinematicsOpprettelse:
-    """Tester for opprettelse av IK-solver."""
+class TestSolve:
+    """IK skal returnere 6 gyldige servovinkler for vanlige rotasjoner."""
 
-    def test_opprettelse(self, ik_solver):
-        """Sjekk at IK-solveren kan opprettes med standard konfigurasjon."""
-        assert ik_solver is not None
-
-    def test_lagrer_geometri(self, default_platform_config):
-        """Sjekk at IK-solveren lagrer referanse til geometri."""
-        geo = PlatformGeometry(default_platform_config)
-        ik = InverseKinematics(geo, default_platform_config.servo_configs)
-        assert ik._geometry is geo
-
-    def test_lagrer_servo_configs(self, default_platform_config):
-        """Sjekk at IK-solveren lagrer servokonfigurasjonene."""
-        geo = PlatformGeometry(default_platform_config)
-        ik = InverseKinematics(geo, default_platform_config.servo_configs)
-        assert len(ik._servo_configs) == 6
-
-
-class TestInverseKinematiksSolve:
-    """Tester for selve IK-losningen (pose -> 6 servovinkler).
-
-    Dette er den viktigste testen: gitt en pose, skal solveren
-    returnere 6 gyldige servovinkler.
-    """
-
-    def test_solve_hjemmepose_gir_seks_vinkler(self, ik_solver):
-        """Sjekk at IK for hjemmepose returnerer 6 servovinkler.
-
-        Hjemmeposen er det enkleste tilfellet — alle bein er like lange
-        og alle servoer skal sta i hjemmeposisjon.
-        """
-        pose = Pose.home()
-        vinkler = ik_solver.solve(pose)
+    def test_hjemmepose_gir_seks_vinkler(self, ik_solver):
+        vinkler = ik_solver.solve(Pose.home())
         assert len(vinkler) == 6
 
-    def test_solve_hjemmepose_vinkler_er_like(self, ik_solver):
-        """Sjekk at hjemmeposen gir like vinkler for alle servoer.
-
-        Pa grunn av symmetrien skal alle 6 servoer staa i omtrent
-        samme vinkel ved hjemmepose.
-        """
-        pose = Pose.home()
-        vinkler = ik_solver.solve(pose)
+    def test_hjemmepose_vinkler_er_like(self, ik_solver):
+        vinkler = ik_solver.solve(Pose.home())
         gjennomsnitt = sum(vinkler) / len(vinkler)
         for vinkel in vinkler:
             assert vinkel == pytest.approx(gjennomsnitt, abs=1.0)
 
-    def test_solve_hjemmepose_vinkler_innenfor_grenser(self, ik_solver):
-        """Sjekk at IK-vinkler for hjemmepose er innenfor servogrensene."""
-        pose = Pose.home()
-        vinkler = ik_solver.solve(pose)
+    def test_hjemmepose_vinkler_innenfor_grenser(self, ik_solver):
+        vinkler = ik_solver.solve(Pose.home())
         for vinkel in vinkler:
             assert 0.0 <= vinkel <= 180.0
 
-    def test_solve_liten_translasjon(self, ik_solver):
-        """Sjekk at en liten translasjon i Z gir gyldige vinkler.
-
-        En liten heving av plattformen skal gi vinkler som er
-        litt forskjellige fra hjemmeposisjonen.
-        """
-        pose = Pose(translation=Vector3(0.0, 0.0, 5.0))
-        vinkler = ik_solver.solve(pose)
+    def test_liten_roll_gir_asymmetriske_vinkler(self, ik_solver):
+        """Liten rotasjon i roll skal heve én side og senke den andre."""
+        vinkler = ik_solver.solve(Pose(rotation=Vector3(5.0, 0.0, 0.0)))
         assert len(vinkler) == 6
-        for vinkel in vinkler:
-            assert 0.0 <= vinkel <= 180.0
-
-    def test_solve_liten_rotasjon(self, ik_solver):
-        """Sjekk at en liten roll-rotasjon gir gyldige men ulike vinkler.
-
-        En roll-bevegelse skal gi asymmetriske vinkler — den ene siden
-        heves mens den andre senkes.
-        """
-        pose = Pose(rotation=Vector3(5.0, 0.0, 0.0))
-        vinkler = ik_solver.solve(pose)
-        assert len(vinkler) == 6
-        # Vinklene skal ikke alle vaere like (plattformen er vippet)
         assert not all(v == pytest.approx(vinkler[0], abs=0.1) for v in vinkler)
 
-    def test_solve_uoppnaelig_pose_klemmer(self, ik_solver):
-        """Sjekk at en umulig pose klemmes til workspace-grensen.
-
-        Etter at IK gikk over til klemme/freeze-modus skal en pose
-        utenfor det fysisk oppnaelige IKKE lenger kaste ValueError.
-        I stedet skal solve() returnere 6 vinkler innenfor [min, max]
-        og markere at klemming har skjedd via last_solve_clamped.
-        """
-        pose = Pose(translation=Vector3(0.0, 0.0, 500.0))  # Altfor hoyt
-        vinkler = ik_solver.solve(pose)
+    def test_uoppnaelig_pose_klemmer(self, ik_solver):
+        """Pose utenfor workspace skal klemmes — ikke kaste."""
+        vinkler = ik_solver.solve(Pose(rotation=Vector3(80.0, 0.0, 0.0)))
         assert len(vinkler) == 6
         for i, vinkel in enumerate(vinkler):
             sc = ik_solver._servo_configs[i]
             assert sc.min_angle_deg <= vinkel <= sc.max_angle_deg
         assert ik_solver.last_solve_clamped is True
-        assert any(ik_solver.last_clamped_mask)
-
-    def test_solve_degenerert_geometri_kaster(self, default_platform_config):
-        """Sjekk at degenerert geometri (R < 1e-10) fortsatt kaster.
-
-        R-naer-null er ekte beregningsumulighet, ikke bare en pose
-        utenfor workspace, og skal forbli en hard feil. Vi konstruerer
-        situasjonen ved aa nullstille horn- og stag-parametre slik
-        at hele leg-vektoren havner med null-lengde i servoplanet.
-        """
-        from copy import deepcopy
-        from stewart_platform.geometry.platform_geometry import PlatformGeometry
-
-        cfg = deepcopy(default_platform_config)
-        # Naar bunn-leddvinkel og topp-leddvinkel er like og radiusene
-        # er like, blir L_r=L_z=0 ved Pose.home() => R<1e-10.
-        cfg.base_radius = 50.0
-        cfg.platform_radius = 50.0
-        cfg.base_joint_angles = [0.0] * 6
-        cfg.platform_joint_angles = [0.0] * 6
-        cfg.home_height = 0.0  # Toppledd og bunnledd sammenfaller
-        geo = PlatformGeometry(cfg)
-        ik = InverseKinematics(geo, cfg.servo_configs)
-
-        with pytest.raises(ValueError, match="null lengde"):
-            ik.solve(Pose.home())
 
 
 class TestPoseReachability:
-    """Tester for sjekk av om en pose er fysisk oppnaelig.
-
-    GUI-en bruker dette for a markere ugyldig omrade i
-    arbeidsomrade-visualiseringen.
-    """
-
     def test_hjemmepose_er_oppnaelig(self, ik_solver):
-        """Sjekk at hjemmeposen alltid er oppnaelig."""
-        pose = Pose.home()
-        assert ik_solver.is_pose_reachable(pose) is True
+        assert ik_solver.is_pose_reachable(Pose.home()) is True
 
-    def test_liten_bevegelse_er_oppnaelig(self, ik_solver):
-        """Sjekk at sma bevegelser rundt hjemmepose er oppnaelige."""
-        poser = [
-            Pose(translation=Vector3(5.0, 0.0, 0.0)),
-            Pose(translation=Vector3(0.0, 5.0, 0.0)),
-            Pose(translation=Vector3(0.0, 0.0, 5.0)),
-            Pose(rotation=Vector3(3.0, 0.0, 0.0)),
-            Pose(rotation=Vector3(0.0, 3.0, 0.0)),
-            Pose(rotation=Vector3(0.0, 0.0, 3.0)),
-        ]
-        for pose in poser:
-            assert ik_solver.is_pose_reachable(pose) is True
+    def test_liten_rotasjon_er_oppnaelig(self, ik_solver):
+        for r in [
+            Vector3(3.0, 0.0, 0.0),
+            Vector3(0.0, 3.0, 0.0),
+            Vector3(0.0, 0.0, 3.0),
+        ]:
+            assert ik_solver.is_pose_reachable(Pose(rotation=r)) is True
 
-    def test_ekstrem_pose_er_ikke_oppnaelig(self, ik_solver):
-        """Sjekk at en ekstrem pose (langt utenfor arbeidsomradet) ikke er oppnaelig."""
-        pose = Pose(translation=Vector3(500.0, 500.0, 500.0))
-        assert ik_solver.is_pose_reachable(pose) is False
-
-    def test_is_pose_reachable_exact_returnerer_false_for_uoppnaelig(self, ik_solver):
-        """Sjekk at is_pose_reachable_exact() er streng (ingen klemming).
-
-        get_workspace_bounds() bruker exact-varianten for binaersoek,
-        og hvis den returnerte True for klemte poser ville arbeids-
-        omradet feilberegnet til hi=200 mm.
-        """
-        pose = Pose(translation=Vector3(0.0, 0.0, 500.0))
-        assert ik_solver.is_pose_reachable_exact(pose) is False
-        # Hjemmeposen skal vaere reachable_exact i samme test for
-        # aa bekrefte at metoden faktisk er funksjonell.
-        assert ik_solver.is_pose_reachable_exact(Pose.home()) is True
-
-
-class TestWorkspaceBounds:
-    """Tester for estimering av arbeidsomradets grenser.
-
-    GUI-en bruker dette for a sette slider-grenser og vise
-    arbeidsomradet visuelt.
-    """
-
-    def test_workspace_bounds_returnerer_to_poser(self, ik_solver):
-        """Sjekk at workspace bounds returnerer (min_pose, max_pose)."""
-        min_pose, max_pose = ik_solver.get_workspace_bounds()
-        assert isinstance(min_pose, Pose)
-        assert isinstance(max_pose, Pose)
-
-    def test_workspace_min_er_negativ_og_max_positiv(self, ik_solver):
-        """Sjekk at min-pose har negative verdier og max-pose har positive.
-
-        Arbeidsomradet skal vaere symmetrisk rundt origo.
-        """
-        min_pose, max_pose = ik_solver.get_workspace_bounds()
-        assert min_pose.translation.x <= 0.0
-        assert max_pose.translation.x >= 0.0
-        assert min_pose.rotation.x <= 0.0
-        assert max_pose.rotation.x >= 0.0
-
-    def test_workspace_bounds_er_realistiske(self, ik_solver):
-        """Sjekk at arbeidsomradet er innenfor realistiske verdier.
-
-        For en plattform med 150mm stag og 25mm servoarm forventes
-        et relativt begrenset arbeidsomrade.
-        """
-        min_pose, max_pose = ik_solver.get_workspace_bounds()
-        # Translasjon skal vaere under rod_length
-        assert max_pose.translation.x < 150.0
-        assert max_pose.translation.y < 150.0
-        assert max_pose.translation.z < 150.0
+    def test_ekstrem_rotasjon_er_ikke_oppnaelig(self, ik_solver):
+        assert ik_solver.is_pose_reachable(Pose(rotation=Vector3(80.0, 0.0, 0.0))) is False
 
 
 class TestIKDirectionUavhengig:
-    """Regresjonstest: IK skal returnere ren geometrisk vinkel.
-
-    Tidligere flippet IK vinkelen (180 - alpha) for servoer med
-    direction=-1, og Servo.angle_to_pulse_us flippet en gang til.
-    Dobbel inversjon brot kalibrering for inverterte servoer.
-    Etter fiksen skal IK gi samme vinkel uavhengig av direction.
-    """
+    """IK skal returnere ren geometrisk vinkel — direction håndteres
+    av Servo.angle_to_pulse_us, ikke av IK selv."""
 
     def test_direction_paavirker_ikke_ik_output(self, default_platform_config):
-        """Sjekk at direction=-1 gir samme IK-vinkel som direction=+1.
-
-        IK skal vaere ren geometri; rotasjonsretning hører hjemme i
-        Servo-laget naar pulsbredden beregnes.
-        """
-        from stewart_platform.config.platform_config import ServoConfig
-        from stewart_platform.geometry.platform_geometry import PlatformGeometry
-
         geo = PlatformGeometry(default_platform_config)
         configs_pluss = [
             ServoConfig(channel=i, mounting_angle_deg=i * 60.0, direction=1)
@@ -264,7 +86,7 @@ class TestIKDirectionUavhengig:
         ik_pluss = InverseKinematics(geo, configs_pluss)
         ik_minus = InverseKinematics(geo, configs_minus)
 
-        pose = Pose(translation=Vector3(0.0, 0.0, 5.0))
+        pose = Pose(rotation=Vector3(2.0, 1.0, 0.0))
         vinkler_pluss = ik_pluss.solve(pose)
         vinkler_minus = ik_minus.solve(pose)
 

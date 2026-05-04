@@ -123,24 +123,12 @@ class PlatformGeometry:
     def get_platform_joints_world(self, pose: Pose) -> List[Vector3]:
         """Beregn toppplatens leddposisjoner i verdenskoordinater.
 
-        Transformerer de lokale leddposisjonene med den gitte posen
-        (translasjon + rotasjon) for å finne hvor hvert leddpunkt
-        befinner seg i bunnplatens koordinatsystem.
-
-        Args:
-            pose: Ønsket pose for toppplaten (6-DOF).
-
-        Returns:
-            Liste med 6 Vector3-posisjoner i verdenskoordinater (mm).
+        Transformerer de lokale leddposisjonene med pose-rotasjonen
+        og en fast translasjon (0, 0, home_height). Plattformen kan
+        kun rotere — translasjon er fjernet fra modellen.
         """
-        m = pose.to_matrix()
-        rot = m[:3, :3]
-        # Toppplaten er plassert på home_height + pose-translasjon
-        translation = np.array([
-            pose.translation.x,
-            pose.translation.y,
-            self._home_height + pose.translation.z,
-        ])
+        rot = self._rotation_matrix(pose.rotation)
+        translation = np.array([0.0, 0.0, self._home_height])
 
         world_joints: List[Vector3] = []
         for joint in self._platform_joints_local:
@@ -148,6 +136,21 @@ class PlatformGeometry:
             world = rot @ local + translation
             world_joints.append(Vector3.from_array(world))
         return world_joints
+
+    @staticmethod
+    def _rotation_matrix(rotation: Vector3) -> np.ndarray:
+        """Bygg 3x3 ZYX-rotasjonsmatrise fra Euler-vinkler i grader."""
+        roll = math.radians(rotation.x)
+        pitch = math.radians(rotation.y)
+        yaw = math.radians(rotation.z)
+        cr, sr = math.cos(roll), math.sin(roll)
+        cp, sp = math.cos(pitch), math.sin(pitch)
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        return np.array([
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp,     cp * sr,                cp * cr],
+        ])
 
     def get_leg_vectors(self, pose: Pose) -> List[Vector3]:
         """Beregn beinvektorene fra bunnplate-ledd til toppplate-ledd.

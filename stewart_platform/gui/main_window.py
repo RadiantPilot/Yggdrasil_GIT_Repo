@@ -30,7 +30,6 @@ from .tabs.config_tab import ConfigTab
 from .tabs.imu_tab import ImuTab
 from .tabs.overview_tab import OverviewTab
 from .tabs.pid_tuning_tab import PidTuningTab
-from .tabs.pose_control_tab import PoseControlTab
 from .tabs.safety_tab import SafetyTab
 from .utils.theme import ThemeManager
 
@@ -132,14 +131,12 @@ class MainWindow(QMainWindow):
         self._tabs.setDocumentMode(True)
 
         self._tab_overview = OverviewTab(self._bridge)
-        self._tab_pose = PoseControlTab(self._bridge)
         self._tab_pid = PidTuningTab(self._bridge)
         self._tab_imu = ImuTab(self._bridge)
         self._tab_config = ConfigTab(self._bridge)
         self._tab_safety = SafetyTab(self._bridge)
 
         self._tabs.addTab(self._tab_overview, "Oversikt")
-        self._tabs.addTab(self._tab_pose, "Pose-kontroll")
         self._tabs.addTab(self._tab_pid, "PID-tuning")
         self._tabs.addTab(self._tab_imu, "IMU")
         self._tabs.addTab(self._tab_config, "Konfig")

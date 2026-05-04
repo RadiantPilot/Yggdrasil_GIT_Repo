@@ -17,17 +17,14 @@ from .button_config import ButtonConfig
 
 
 class Axis(IntEnum):
-    """Frihetsgrader for Stewart-plattformen.
+    """Rotasjonsakser for Stewart-plattformen.
 
-    Brukes til å identifisere enkeltakser ved per-akse
-    PID-tuning og step-respons.
+    Plattformen styres kun rotasjonelt (translasjon er fjernet).
+    Brukes for per-akse PID-tuning og GUI-navigasjon.
     """
-    X = 0
-    Y = 1
-    Z = 2
-    ROLL = 3
-    PITCH = 4
-    YAW = 5
+    ROLL = 0
+    PITCH = 1
+    YAW = 2
 
 
 @dataclass
@@ -71,68 +68,46 @@ class ServoConfig:
 class PIDGains:
     """PID-regulatorforsterkning.
 
-    Brukes til å justere PID-regulatoren som styrer plattformens
-    bevegelse. Alle seks frihetsgradene deler samme forsterkning
-    som utgangspunkt, men kan utvides til individuelle verdier.
+    Deles av alle tre rotasjonsakser ved opprettelse, men kan
+    overstyres per akse via PoseController.set_pid_gains.
 
-    output_min/output_max begrenser per-tick PID-korreksjonen i
-    samme enhet som aksen (mm for X/Y/Z, grader for roll/pitch/yaw).
-    Standardverdier er valgt slik at en enkelt korreksjon ikke
-    overskrider en mindre del av sikkerhetsenvelopen.
+    output_min/output_max er per-tick korreksjon i grader.
     """
 
-    # Proporsjonal forsterkning.
     kp: float = 1.0
-
-    # Integral forsterkning.
     ki: float = 0.0
-
-    # Derivat forsterkning.
     kd: float = 0.0
-
-    # Minimum per-tick PID-korreksjon (mm eller grader).
     output_min: float = -10.0
-
-    # Maksimum per-tick PID-korreksjon (mm eller grader).
     output_max: float = 10.0
-
-    # Øvre grense for integralleddet (anti-windup).
     integral_limit: float = 100.0
 
 
 @dataclass
 class SafetyConfig:
-    """Sikkerhetsgrenser for plattformen.
+    """Sikkerhetsgrenser for plattformen (kun rotasjon).
 
-    Definerer maksimale verdier for translasjon, rotasjon og
-    hastighet. Brukes av SafetyMonitor for å hindre at plattformen
-    beveger seg utenfor trygge grenser.
+    Translasjon-grenser er fjernet — plattformen kan ikke lenger
+    bevege seg lineært i denne modellen.
     """
 
-    # Hvis False, hopper SafetyMonitor over alle sjekker (check_all
-    # returnerer alltid is_safe=True). Brukes mens man tuner geometri
-    # og PID — slå PÅ igjen så snart plattformen er trygg å kjøre med.
+    # Hvis False, hopper SafetyMonitor over alle sjekker. Brukes
+    # under bringup/tuning. Slå PÅ igjen så snart plattformen er
+    # trygg å kjøre med.
     enabled: bool = True
-
-    # Maksimal translasjon fra senter i millimeter.
-    max_translation_mm: float = 50.0
 
     # Maksimal rotasjon fra nøytral i grader.
     max_rotation_deg: float = 30.0
 
-    # Maksimal lineær hastighet i mm/s.
-    max_velocity_mm_per_s: float = 100.0
-
     # Maksimal vinkelhastighet i grader/s.
     max_angular_velocity_deg_per_s: float = 60.0
 
-    # Sikkerhetsmargin for servovinkler i grader (avstand fra mekanisk grense).
+    # Sikkerhetsmargin for servovinkler i grader.
     servo_angle_margin_deg: float = 5.0
 
-    # Tidsgrense for watchdog i sekunder. Utløser nødstopp hvis overskrides.
+    # Watchdog-tidsgrense i sekunder.
     watchdog_timeout_s: float = 1.0
 
-    # Terskel for IMU-feildeteksjon i g. Verdier over dette indikerer feil.
+    # Terskel for IMU-feildeteksjon i g.
     imu_fault_threshold_g: float = 4.0
 
 
@@ -184,6 +159,8 @@ class PlatformConfig:
     rod_length: float = 150.0
 
     # Hvilehøyde for toppplaten over bunnplaten i millimeter.
+    # Brukes som fast translasjon-Z i kinematikken — toppplaten
+    # holder samme høyde i alle stillinger og roterer kun.
     # Kan settes til None i YAML for å la PlatformGeometry beregne
     # høyden geometrisk (sqrt(rod_length^2 - horisontalt^2)).
     home_height: Optional[float] = 120.0

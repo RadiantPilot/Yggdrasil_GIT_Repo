@@ -191,15 +191,12 @@ class ControllerBridge(QObject):
             if history:
                 latest_safety = history[-1]
 
-        # PID-feil per akse
+        # PID-feil per rotasjonsakse (mål - faktisk).
         pid_errors: dict[Axis, float] = {}
         if pose_ctl is not None:
             cur = ctl.get_current_pose()
             tgt = ctl.target_pose
             pid_errors = {
-                Axis.X: tgt.translation.x - cur.translation.x,
-                Axis.Y: tgt.translation.y - cur.translation.y,
-                Axis.Z: tgt.translation.z - cur.translation.z,
                 Axis.ROLL: tgt.rotation.x - cur.rotation.x,
                 Axis.PITCH: tgt.rotation.y - cur.rotation.y,
                 Axis.YAW: tgt.rotation.z - cur.rotation.z,
@@ -230,10 +227,7 @@ class ControllerBridge(QObject):
         roll = 3.0 * math.sin(0.5 * t)
         pitch = 2.0 * math.cos(0.3 * t)
         yaw = 0.5 * math.sin(0.2 * t)
-        current = Pose(
-            translation=Vector3(0.0, 0.0, self._config.home_height),
-            rotation=Vector3(roll, pitch, yaw),
-        )
+        current = Pose(rotation=Vector3(roll, pitch, yaw))
 
         # Simulerte servovinkler — følger en sinus rundt home
         servo_angles = [
@@ -253,12 +247,9 @@ class ControllerBridge(QObject):
             1.0 * math.cos(0.3 * t),
         )
 
-        # Mock PID-feil
+        # Mock PID-feil per rotasjonsakse
         tgt = self._mock_target_pose
         pid_errors = {
-            Axis.X: tgt.translation.x - current.translation.x,
-            Axis.Y: tgt.translation.y - current.translation.y,
-            Axis.Z: tgt.translation.z - current.translation.z,
             Axis.ROLL: tgt.rotation.x - current.rotation.x,
             Axis.PITCH: tgt.rotation.y - current.rotation.y,
             Axis.YAW: tgt.rotation.z - current.rotation.z,

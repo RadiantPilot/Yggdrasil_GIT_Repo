@@ -1,13 +1,14 @@
 """
-pid_tuning_tab.py · Tab 3: PID-tuning.
+pid_tuning_tab.py · PID-tuning og mål-orientering.
 
-6 PID-kort (X/Y/Z/Roll/Pitch/Yaw) med individuelle Kp/Ki/Kd-sliders,
-sanntids feil-visning, og felles step-respons-graf.
+Viser 3 PID-kort (Roll/Pitch/Yaw), 3 sliders for mål-orientering
+og en sanntids feilgraf. Etter at translasjon ble fjernet fra
+plattformen er dette eneste stedet brukeren kan styre mål-pose.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,30 +18,166 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
 
 from ...config.platform_config import Axis, PIDGains
+from ...geometry.pose import Pose
+from ...geometry.vector3 import Vector3
 from ..bridge.controller_bridge import ControllerBridge
 from ..bridge.state_snapshot import StateSnapshot
 from ..widgets.pid_card import PidCard
 from ..widgets.realtime_plot import RealtimePlot
 
 
-# Aksenavn og enheter
-_AXIS_INFO = [
-    (Axis.X, "X", "mm", 10.0, 5.0, 1.0),
-    (Axis.Y, "Y", "mm", 10.0, 5.0, 1.0),
-    (Axis.Z, "Z", "mm", 10.0, 5.0, 1.0),
-    (Axis.ROLL, "Roll", "°", 5.0, 2.0, 0.5),
-    (Axis.PITCH, "Pitch", "°", 5.0, 2.0, 0.5),
-    (Axis.YAW, "Yaw", "°", 3.0, 1.0, 0.3),
+# (Akse, navn, kp_max, ki_max, kd_max, slider_min, slider_max)
+_AXES = [
+    (Axis.ROLL,  "Roll",  5.0, 2.0, 0.5, -20.0, 20.0),
+    (Axis.PITCH, "Pitch", 5.0, 2.0, 0.5, -20.0, 20.0),
+    (Axis.YAW,   "Yaw",   3.0, 1.0, 0.3, -25.0, 25.0),
 ]
 
 
+class _RotationSliders(QWidget):
+    """Tre sliders + spinbokser for å sette mål-orientering."""
+
+    rotation_changed = Signal(object)  # Vector3
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sliders: list[QSlider] = []
+        self._spins: list[QDoubleSpinBox] = []
+        self._labels: list[QLabel] = []
+        self._updating = False
+        self._active_axis = 0
+
+        grid = QGridLayout(self)
+        grid.setSpacing(6)
+        for col, hdr in enumerate(["Akse", "Mål", "Input", "Nå"]):
+            lbl = QLabel(hdr)
+            lbl.setStyleSheet("font-size: 10px; color: #888;")
+            grid.addWidget(lbl, 0, col)
+
+        for i, (_, name, *_, mn, mx) in enumerate(_AXES):
+            row = i + 1
+            lbl = QLabel(f"{name} (°)")
+            lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+            grid.addWidget(lbl, row, 0)
+            self._labels.append(lbl)
+
+            slider = QSlider(Qt.Horizontal)
+            slider.setRange(int(mn * 100), int(mx * 100))
+            slider.setValue(0)
+            slider.setProperty("axis_index", i)
+            slider.valueChanged.connect(self._on_slider)
+            grid.addWidget(slider, row, 1)
+            self._sliders.append(slider)
+
+            spin = QDoubleSpinBox()
+            spin.setRange(mn, mx)
+            spin.setDecimals(2)
+            spin.setSingleStep(0.5)
+            spin.setSuffix(" °")
+            spin.setFixedWidth(90)
+            spin.setProperty("axis_index", i)
+            spin.valueChanged.connect(self._on_spin)
+            grid.addWidget(spin, row, 2)
+            self._spins.append(spin)
+
+            cur = QLabel("—")
+            cur.setStyleSheet("font-family: monospace; font-size: 11px; color: #888;")
+            cur.setFixedWidth(60)
+            cur.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            grid.addWidget(cur, row, 3)
+
+        self._current_labels = [grid.itemAtPosition(i + 1, 3).widget() for i in range(3)]
+
+    def _on_slider(self, value: int) -> None:
+        if self._updating:
+            return
+        idx = self.sender().property("axis_index")
+        self._updating = True
+        self._spins[idx].setValue(value / 100.0)
+        self._updating = False
+        self._emit()
+
+    def _on_spin(self, value: float) -> None:
+        if self._updating:
+            return
+        idx = self.sender().property("axis_index")
+        self._updating = True
+        self._sliders[idx].setValue(int(value * 100))
+        self._updating = False
+        self._emit()
+
+    def _emit(self) -> None:
+        rot = Vector3(
+            self._spins[0].value(),
+            self._spins[1].value(),
+            self._spins[2].value(),
+        )
+        self.rotation_changed.emit(rot)
+
+    def set_target(self, rotation: Vector3) -> None:
+        """Sett slider-verdier uten å emittere signal."""
+        self._updating = True
+        for i, v in enumerate([rotation.x, rotation.y, rotation.z]):
+            self._spins[i].setValue(v)
+            self._sliders[i].setValue(int(v * 100))
+        self._updating = False
+
+    def update_current(self, rotation: Vector3) -> None:
+        """Oppdater 'Nå'-kolonnen."""
+        for i, v in enumerate([rotation.x, rotation.y, rotation.z]):
+            self._current_labels[i].setText(f"{v:+.2f}")
+
+    def reset_to_zero(self) -> None:
+        """Sett alle akser til 0."""
+        self._updating = True
+        for i in range(3):
+            self._sliders[i].setValue(0)
+            self._spins[i].setValue(0.0)
+        self._updating = False
+        self._emit()
+
+    # --- Knappenavigasjon (Navigable) ---
+
+    def set_focused(self, focused: bool) -> None:
+        if focused:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def set_edit_mode(self, edit: bool) -> None:
+        if edit:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def nav_vertical(self, delta: int) -> None:
+        self._active_axis = (self._active_axis + delta) % 3
+        self._highlight()
+
+    def nav_horizontal(self, delta: int) -> None:
+        spin = self._spins[self._active_axis]
+        spin.setValue(spin.value() + delta * spin.singleStep())
+
+    def _highlight(self) -> None:
+        for i, lbl in enumerate(self._labels):
+            if i == self._active_axis:
+                lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f39c12;")
+            else:
+                lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+
+    def _clear_highlight(self) -> None:
+        for lbl in self._labels:
+            lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+
+
 class PidTuningTab(QWidget):
-    """PID-tuning-fane med 6 kort og responsgrafer."""
+    """PID-tuning + mål-orienteringsstyring i samme fane."""
 
     def __init__(self, bridge: ControllerBridge) -> None:
         super().__init__()
@@ -48,55 +185,74 @@ class PidTuningTab(QWidget):
         self._cards: dict[Axis, PidCard] = {}
         self._build_ui()
         self._load_gains_from_bridge()
+        self._bridge.target_pose_changed.connect(self._on_external_target_pose)
 
     def _build_ui(self) -> None:
         root = QHBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        # --- Venstre: 6 PID-kort i 3x2 grid ---
+        # Venstre kolonne: PID-kort + målorientering
         left = QVBoxLayout()
         left.setSpacing(8)
 
-        cards_box = QGroupBox("PID-parametere")
-        grid = QGridLayout(cards_box)
-        grid.setSpacing(8)
-
-        for i, (axis, name, unit, kp_max, ki_max, kd_max) in enumerate(_AXIS_INFO):
-            card = PidCard(name, unit, kp_max, ki_max, kd_max)
-            card.gains_changed.connect(lambda gains, ax=axis: self._on_gains_changed(ax, gains))
-            row, col = divmod(i, 2)
-            grid.addWidget(card, row, col)
+        cards_box = QGroupBox("PID per akse")
+        cards_layout = QHBoxLayout(cards_box)
+        cards_layout.setSpacing(8)
+        for axis, name, kp_max, ki_max, kd_max, *_ in _AXES:
+            card = PidCard(name, "°", kp_max, ki_max, kd_max)
+            card.gains_changed.connect(
+                lambda gains, ax=axis: self._on_gains_changed(ax, gains)
+            )
+            cards_layout.addWidget(card)
             self._cards[axis] = card
-
         left.addWidget(cards_box)
+
+        target_box = QGroupBox("Mål-orientering")
+        tl = QVBoxLayout(target_box)
+        self._sliders = _RotationSliders()
+        self._sliders.rotation_changed.connect(self._on_target_changed)
+        tl.addWidget(self._sliders)
+
+        preset_row = QHBoxLayout()
+        for label, callback in [
+            ("Null", self._preset_zero),
+            ("Roll +10°", lambda: self._preset_axis(0, 10.0)),
+            ("Pitch +10°", lambda: self._preset_axis(1, 10.0)),
+            ("Yaw +10°", lambda: self._preset_axis(2, 10.0)),
+        ]:
+            btn = QPushButton(label)
+            btn.clicked.connect(callback)
+            preset_row.addWidget(btn)
+        preset_row.addStretch()
+        tl.addLayout(preset_row)
+
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet("font-size: 11px; color: #888;")
+        tl.addWidget(self._status_label)
+
+        left.addWidget(target_box)
+        left.addStretch()
         root.addLayout(left, 3)
 
-        # --- Høyre: grafer + kontroller ---
+        # Høyre kolonne: Sanntids feilgraf
         right = QVBoxLayout()
         right.setSpacing(12)
 
-        # Feilgraf — alle 6 akser i sanntid
         err_box = QGroupBox("PID-feil (sanntid)")
         eg = QVBoxLayout(err_box)
-
-        series = ["X", "Y", "Z", "Roll", "Pitch", "Yaw"]
         self._error_plot = RealtimePlot(
-            series_names=series,
+            series_names=["Roll", "Pitch", "Yaw"],
             window_size=200,
-            y_label="Feil",
-            lock_y=True,
+            y_label="Feil (°)",
         )
-        self._error_plot.setMinimumHeight(220)
+        self._error_plot.setMinimumHeight(260)
         eg.addWidget(self._error_plot)
 
-        # Kontrollrad: aksevalg + tidsvindu
         ctrl = QHBoxLayout()
-        ctrl.setSpacing(6)
         ctrl.addWidget(QLabel("Vis:"))
-
         self._axis_checks: list[QCheckBox] = []
-        for i, name in enumerate(series):
+        for i, name in enumerate(["Roll", "Pitch", "Yaw"]):
             cb = QCheckBox(name)
             cb.setChecked(True)
             cb.toggled.connect(
@@ -104,166 +260,92 @@ class PidTuningTab(QWidget):
             )
             ctrl.addWidget(cb)
             self._axis_checks.append(cb)
-
-        ctrl.addSpacing(12)
-        btn_all = QPushButton("Alle")
-        btn_all.setFixedWidth(48)
-        btn_all.clicked.connect(lambda: self._set_all_axes(True))
-        ctrl.addWidget(btn_all)
-        btn_none = QPushButton("Ingen")
-        btn_none.setFixedWidth(52)
-        btn_none.clicked.connect(lambda: self._set_all_axes(False))
-        ctrl.addWidget(btn_none)
-
         ctrl.addStretch()
         ctrl.addWidget(QLabel("Tidsvindu:"))
         self._window_combo = QComboBox()
-        for label, samples in [
-            ("5 s", 100),
-            ("10 s", 200),
-            ("20 s", 400),
-            ("60 s", 1200),
-        ]:
+        for label, samples in [("5 s", 75), ("10 s", 150), ("20 s", 300), ("60 s", 900)]:
             self._window_combo.addItem(label, samples)
-        self._window_combo.setCurrentIndex(1)  # 10 s som standard
+        self._window_combo.setCurrentIndex(1)
         self._window_combo.currentIndexChanged.connect(self._on_window_changed)
         ctrl.addWidget(self._window_combo)
-
         eg.addLayout(ctrl)
 
-        hint = QLabel(
-            "Rull med musehjulet over grafen for å zoome langs tidsaksen. "
-            "Y-aksen auto-skaleres til valgte serier."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("font-size: 10px; color: #888;")
-        eg.addWidget(hint)
-
         right.addWidget(err_box, 1)
-
-        # Step-respons kontroller
-        step_box = QGroupBox("Step-respons")
-        sbl = QVBoxLayout(step_box)
-
-        ctrl_row = QHBoxLayout()
-        ctrl_row.setSpacing(8)
-
-        ctrl_row.addWidget(QLabel("Akse:"))
-        self._axis_combo = QComboBox()
-        for axis, name, *_ in _AXIS_INFO:
-            self._axis_combo.addItem(name, axis)
-        ctrl_row.addWidget(self._axis_combo)
-
-        ctrl_row.addWidget(QLabel("Steg:"))
-        self._step_spin = QDoubleSpinBox()
-        self._step_spin.setRange(0.1, 20.0)
-        self._step_spin.setValue(5.0)
-        self._step_spin.setSingleStep(0.5)
-        self._step_spin.setFixedWidth(70)
-        ctrl_row.addWidget(self._step_spin)
-
-        self._step_btn = QPushButton("Trigger step")
-        self._step_btn.clicked.connect(self._on_trigger_step)
-        ctrl_row.addWidget(self._step_btn)
-
-        ctrl_row.addStretch()
-        sbl.addLayout(ctrl_row)
-
-        # Info-tekst
-        info = QLabel(
-            "Step-respons sender et steg-signal på valgt akse og "
-            "viser responskurven. Brukes til å tune PID-parametere."
-        )
-        info.setWordWrap(True)
-        info.setStyleSheet("font-size: 10px; color: #888;")
-        sbl.addWidget(info)
-
-        right.addWidget(step_box)
-        right.addStretch()
-
         root.addLayout(right, 2)
 
+    # ------------------------------------------------------------------
+    # Bridge-koblinger
+    # ------------------------------------------------------------------
+
     def _load_gains_from_bridge(self) -> None:
-        """Last PID-gains fra bridge ved oppstart."""
         snapshot = self._bridge.get_snapshot()
         for axis, card in self._cards.items():
             if axis in snapshot.pid_gains:
                 card.set_gains(snapshot.pid_gains[axis])
 
     def _on_gains_changed(self, axis: Axis, gains: PIDGains) -> None:
-        """Bruker endret PID-parameter — send til bridge."""
         self._bridge.set_pid_gains(axis, gains)
 
-    def _set_all_axes(self, visible: bool) -> None:
-        """Slå alle aksevalg-checkbokser av eller på."""
-        for cb in self._axis_checks:
-            cb.setChecked(visible)
+    @Slot(object)
+    def _on_target_changed(self, rotation: Vector3) -> None:
+        ok = self._bridge.set_target_pose(Pose(rotation=rotation))
+        if not ok:
+            self._status_label.setText("Mål avvist av sikkerhetsmonitor")
+            self._status_label.setStyleSheet("font-size: 11px; color: #c53434;")
+        else:
+            self._status_label.setText("")
+
+    @Slot(object)
+    def _on_external_target_pose(self, pose: Pose) -> None:
+        self._sliders.set_target(pose.rotation)
+
+    # ------------------------------------------------------------------
+    # Presets / kontroller
+    # ------------------------------------------------------------------
+
+    def _preset_zero(self) -> None:
+        self._sliders.reset_to_zero()
+
+    def _preset_axis(self, idx: int, value: float) -> None:
+        rot = [0.0, 0.0, 0.0]
+        rot[idx] = value
+        self._sliders.set_target(Vector3(*rot))
+        self._sliders._emit()
 
     @Slot(int)
     def _on_window_changed(self, _index: int) -> None:
-        """Bytt tidsvindu på feilgrafen."""
         size = self._window_combo.currentData()
         if size is not None:
             self._error_plot.set_window_size(int(size))
 
-    @Slot()
-    def _on_trigger_step(self) -> None:
-        """Trigger step-respons-test."""
-        axis = self._axis_combo.currentData()
-        step_size = self._step_spin.value()
-        # For nå — juster mål-pose med et steg på valgt akse
-        snapshot = self._bridge.get_snapshot()
-        tgt = snapshot.target_pose
-
-        from ...geometry.pose import Pose
-        from ...geometry.vector3 import Vector3
-
-        tx, ty, tz = tgt.translation.x, tgt.translation.y, tgt.translation.z
-        rx, ry, rz = tgt.rotation.x, tgt.rotation.y, tgt.rotation.z
-
-        if axis == Axis.X:
-            tx += step_size
-        elif axis == Axis.Y:
-            ty += step_size
-        elif axis == Axis.Z:
-            tz += step_size
-        elif axis == Axis.ROLL:
-            rx += step_size
-        elif axis == Axis.PITCH:
-            ry += step_size
-        elif axis == Axis.YAW:
-            rz += step_size
-
-        new_pose = Pose(
-            translation=Vector3(tx, ty, tz),
-            rotation=Vector3(rx, ry, rz),
-        )
-        self._bridge.set_target_pose(new_pose)
+    # ------------------------------------------------------------------
+    # Snapshot-oppdatering + knappenavigasjon
+    # ------------------------------------------------------------------
 
     def get_navigables(self) -> list:
-        """Returner alle PID-kort som fokuserbare widgets, i akse-rekkefølge."""
-        return [self._cards[axis] for axis, *_ in _AXIS_INFO if axis in self._cards]
+        """PID-kortene + målorienterings-sliders for FocusManager."""
+        return [self._cards[axis] for axis, *_ in _AXES] + [self._sliders]
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
-        """Oppdater kort-feilvisning og grafer."""
-        # Oppdater PID-feil på kortene
+        """Oppdater feilkort og sanntidsgraf fra snapshot."""
         errors = snapshot.pid_errors
-        error_values = []
+        values = []
         for axis, card in self._cards.items():
             err = errors.get(axis, 0.0)
             card.set_error(err)
-            error_values.append(err)
-
-        # Oppdater feilgraf
-        self._error_plot.append_values(error_values)
+            values.append(err)
+        self._error_plot.append_values(values)
         self._error_plot.refresh()
 
-        # Synkroniser gains fra snapshot hvis de er endret eksternt
+        # Synkroniser PID-kort hvis gains er endret eksternt
         for axis, card in self._cards.items():
             if axis in snapshot.pid_gains:
-                current = card.get_gains()
+                local = card.get_gains()
                 remote = snapshot.pid_gains[axis]
-                if (abs(current.kp - remote.kp) > 0.001
-                        or abs(current.ki - remote.ki) > 0.001
-                        or abs(current.kd - remote.kd) > 0.001):
+                if (abs(local.kp - remote.kp) > 0.001
+                        or abs(local.ki - remote.ki) > 0.001
+                        or abs(local.kd - remote.kd) > 0.001):
                     card.set_gains(remote)
+
+        # Oppdater "Nå"-kolonne med målt orientering
+        self._sliders.update_current(snapshot.current_pose.rotation)

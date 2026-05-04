@@ -85,9 +85,9 @@ class SafetyTab(QWidget):
 
         self._check_lamps: dict[str, IndicatorLamp] = {}
         check_names = [
-            ("pose_ok", "Pose innenfor grenser"),
+            ("pose_ok", "Rotasjon innenfor grenser"),
             ("servo_ok", "Servovinkler gyldige"),
-            ("velocity_ok", "Hastighet innenfor grenser"),
+            ("velocity_ok", "Vinkelhastighet innenfor grenser"),
             ("imu_ok", "IMU-data gyldig"),
             ("watchdog_ok", "Watchdog aktiv"),
             ("estop_clear", "E-STOP ikke utløst"),
@@ -113,9 +113,7 @@ class SafetyTab(QWidget):
 
         self._limit_spins: dict[str, QDoubleSpinBox] = {}
         limit_fields = [
-            ("max_translation_mm", "Maks translasjon (mm)", 1.0, 200.0, 1.0),
             ("max_rotation_deg", "Maks rotasjon (°)", 1.0, 90.0, 1.0),
-            ("max_velocity_mm_per_s", "Maks hastighet (mm/s)", 1.0, 500.0, 5.0),
             ("max_angular_velocity_deg_per_s", "Maks vinkelhastighet (°/s)", 1.0, 360.0, 5.0),
             ("servo_angle_margin_deg", "Servomargin (°)", 0.0, 30.0, 0.5),
             ("watchdog_timeout_s", "Watchdog timeout (s)", 0.1, 10.0, 0.1),
@@ -153,9 +151,7 @@ class SafetyTab(QWidget):
     def _load_limits(self) -> None:
         """Last sikkerhetsgrenser fra config."""
         cfg = self._bridge.config.safety_config
-        self._limit_spins["max_translation_mm"].setValue(cfg.max_translation_mm)
         self._limit_spins["max_rotation_deg"].setValue(cfg.max_rotation_deg)
-        self._limit_spins["max_velocity_mm_per_s"].setValue(cfg.max_velocity_mm_per_s)
         self._limit_spins["max_angular_velocity_deg_per_s"].setValue(cfg.max_angular_velocity_deg_per_s)
         self._limit_spins["servo_angle_margin_deg"].setValue(cfg.servo_angle_margin_deg)
         self._limit_spins["watchdog_timeout_s"].setValue(cfg.watchdog_timeout_s)
@@ -175,9 +171,7 @@ class SafetyTab(QWidget):
     def _on_apply_limits(self) -> None:
         """Bruk nye sikkerhetsgrenser."""
         new_config = SafetyConfig(
-            max_translation_mm=self._limit_spins["max_translation_mm"].value(),
             max_rotation_deg=self._limit_spins["max_rotation_deg"].value(),
-            max_velocity_mm_per_s=self._limit_spins["max_velocity_mm_per_s"].value(),
             max_angular_velocity_deg_per_s=self._limit_spins["max_angular_velocity_deg_per_s"].value(),
             servo_angle_margin_deg=self._limit_spins["servo_angle_margin_deg"].value(),
             watchdog_timeout_s=self._limit_spins["watchdog_timeout_s"].value(),
@@ -212,25 +206,31 @@ class SafetyTab(QWidget):
                 "border-radius: 6px; padding: 8px;"
             )
 
-        # Sikkerhetssjekker — basert på siste resultat
+        # Sikkerhetssjekker — basert på siste resultat. Vi ser etter
+        # nøkkelord i violation-strengene fordi safety_monitor
+        # genererer detaljerte meldinger med tall.
         result = snapshot.latest_safety_result
         if result is not None:
-            violations = set(result.violations)
+            joined = " ".join(result.violations)
+
+            def has(keyword: str) -> bool:
+                return keyword.lower() in joined.lower()
+
             self._check_lamps["pose_ok"].set_state(
-                "Pose utenfor tillatte grenser." not in violations,
-                "green" if "Pose utenfor tillatte grenser." not in violations else "red",
+                not has("Rotasjon utenfor"),
+                "green" if not has("Rotasjon utenfor") else "red",
             )
             self._check_lamps["servo_ok"].set_state(
-                "Servovinkler utenfor tillatte grenser." not in violations,
-                "green" if "Servovinkler utenfor tillatte grenser." not in violations else "red",
+                not has("Servovinkler utenfor"),
+                "green" if not has("Servovinkler utenfor") else "red",
             )
             self._check_lamps["velocity_ok"].set_state(
-                "Hastighet over tillatt grense." not in violations,
-                "green" if "Hastighet over tillatt grense." not in violations else "red",
+                not has("Vinkelhastighet"),
+                "green" if not has("Vinkelhastighet") else "red",
             )
             self._check_lamps["imu_ok"].set_state(
-                "IMU-akselerasjon over feilterskel." not in violations,
-                "green" if "IMU-akselerasjon over feilterskel." not in violations else "red",
+                not has("IMU-akselerasjon"),
+                "green" if not has("IMU-akselerasjon") else "red",
             )
 
             n_checks = len(snapshot.safety_results)

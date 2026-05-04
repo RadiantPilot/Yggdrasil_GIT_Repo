@@ -1,246 +1,61 @@
 # pose_controller.py
 # ==================
-# Posekontroller som bruker 6 PID-regulatorer (en per frihetsgrad)
-# for å beregne en korrigert pose basert på avviket mellom
-# ønsket pose (setpunkt) og målt pose (fra IMU-fusjon).
+# Posekontroller med 3 PID-regulatorer (én per rotasjonsakse).
+# Beregner en korrigert orientering basert på avviket mellom
+# ønsket og målt orientering (fra IMU-fusjon).
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
-
 from ..config.platform_config import Axis, PIDGains
 from ..geometry.pose import Pose
+from ..geometry.vector3 import Vector3
 from .pid_controller import PIDController
 
 
-class StepResponseRecorder:
-    """Samler step-respons-data for en enkelt akse.
-
-    Brukes av PoseController for å registrere setpunkt og
-    faktisk verdi per tick under et step-respons-eksperiment.
-    GUI kan polle get_step_response_recorder() for å lese bufferen.
-    """
-
-    def __init__(self, axis: Axis, from_val: float, to_val: float) -> None:
-        """Opprett en ny recorder for en step-respons.
-
-        Args:
-            axis: Aksen som stepes.
-            from_val: Startverdi for steppet.
-            to_val: Sluttverdi (nytt setpunkt).
-        """
-        self.axis = axis
-        self.from_val = from_val
-        self.to_val = to_val
-        self.is_active = True
-        self.samples: List[tuple[float, float, float]] = []
-
-    def record(self, timestamp: float, setpoint: float, actual: float) -> None:
-        """Legg til en sample i bufferen.
-
-        Ignorerer kall hvis recorder allerede er avsluttet.
-
-        Args:
-            timestamp: Tidspunkt for samplen i sekunder.
-            setpoint: Setpunktverdi for aksen.
-            actual: Faktisk målt verdi for aksen.
-        """
-        if not self.is_active:
-            return
-        self.samples.append((timestamp, setpoint, actual))
-
-    def finish(self) -> None:
-        """Marker step-responsen som avsluttet."""
-        self.is_active = False
-
-
-# Type-alias for response-lytter-callback.
-ResponseListener = Callable[[Axis, float, float, float], None]
-
-
 class PoseController:
-    """6-DOF posekontroller med individuelle PID-regulatorer.
+    """3-DOF orienteringskontroller med PID per akse.
 
-    Bruker 6 uavhengige PID-regulatorer — en for hver frihetsgrad
-    (X, Y, Z, roll, pitch, yaw) — for å minimere avviket mellom
-    ønsket pose og nåværende pose. Utgangen er en korrigert pose
-    som kan sendes til InverseKinematics.
-
-    Rekkefølge: [X, Y, Z, roll, pitch, yaw]
+    Bruker tre uavhengige PID-regulatorer for ROLL, PITCH og YAW.
+    Utgangen er target + PID-korreksjon — sendes videre til IK.
     """
 
     def __init__(self, gains: PIDGains) -> None:
-        """Opprett en posekontroller med 6 PID-regulatorer.
-
-        Alle 6 regulatorene initialiseres med samme forsterkning.
-        For å bruke ulike forsterkninger per akse, bruk set_pid_gains()
-        individuelt etter opprettelse.
-
-        Args:
-            gains: PID-forsterkning som brukes for alle 6 akser.
-        """
-        self._controllers = [PIDController(gains) for _ in range(6)]
-        self._step_recorders: dict[Axis, StepResponseRecorder] = {}
-        self._response_listeners: List[ResponseListener] = []
+        self._controllers = [PIDController(gains) for _ in range(3)]
 
     def update(self, target: Pose, current: Pose, dt: float) -> Pose:
-        """Beregn kommandert pose = target + PID-korreksjon.
+        """Beregn kommandert orientering = target + PID-korreksjon.
 
-        Kjører alle 6 PID-regulatorer på avviket mellom target og
-        current. Outputene tolkes som tilleggskorreksjoner som
-        legges på toppen av target, slik at posen sendt videre til
-        IK-solveren er feed-forward (target) pluss closed-loop
-        (PID).
-
-        Når plattformen allerede er der den skal være, blir
-        korreksjonen null og kommandert pose lik target. Når det er
-        avvik, gir PID-regulatorene en additiv korreksjon for å
-        eliminere det.
-
-        Args:
-            target: Ønsket mål-pose (setpunkt for IK).
-            current: Nåværende estimert pose (fra IMU-fusjon).
-            dt: Tid siden forrige oppdatering i sekunder.
-
-        Returns:
-            Kommandert pose (target + PID-korreksjon) som kan
-            sendes til IK-solveren.
+        Når plattformen allerede er der den skal være blir
+        korreksjonen null og kommandert pose lik target.
         """
-        from ..geometry.vector3 import Vector3
-
-        setpoints = [
-            target.translation.x, target.translation.y, target.translation.z,
-            target.rotation.x, target.rotation.y, target.rotation.z,
-        ]
-        measurements = [
-            current.translation.x, current.translation.y, current.translation.z,
-            current.rotation.x, current.rotation.y, current.rotation.z,
-        ]
+        setpoints = [target.rotation.x, target.rotation.y, target.rotation.z]
+        measurements = [current.rotation.x, current.rotation.y, current.rotation.z]
         corrections = [
             self._controllers[i].update(setpoints[i], measurements[i], dt)
-            for i in range(6)
+            for i in range(3)
         ]
         return Pose(
-            translation=Vector3(
+            rotation=Vector3(
                 setpoints[0] + corrections[0],
                 setpoints[1] + corrections[1],
                 setpoints[2] + corrections[2],
             ),
-            rotation=Vector3(
-                setpoints[3] + corrections[3],
-                setpoints[4] + corrections[4],
-                setpoints[5] + corrections[5],
-            ),
         )
 
     def reset(self) -> None:
-        """Nullstill alle 6 PID-regulatorer.
-
-        Kalles ved oppstart eller etter nødstopp.
-        """
+        """Nullstill alle PID-regulatorer."""
         for controller in self._controllers:
             controller.reset()
 
     def get_pid_gains(self, axis: Axis) -> PIDGains:
-        """Hent PID-forsterkning for en enkelt akse.
-
-        Args:
-            axis: Frihetsgraden (X, Y, Z, ROLL, PITCH, YAW).
-
-        Returns:
-            PIDGains for den valgte aksen.
-
-        Raises:
-            IndexError: Hvis axis-verdien er utenfor 0-5.
-        """
-        idx = int(axis)
-        return self._controllers[idx]._gains
+        """Hent PID-forsterkning for en akse."""
+        return self._controllers[int(axis)]._gains
 
     def set_pid_gains(self, axis: Axis, gains: PIDGains) -> None:
-        """Sett PID-forsterkning for en enkelt akse.
-
-        Tillater individuell tuning per frihetsgrad uten
-        å påvirke de andre aksene.
-
-        Args:
-            axis: Frihetsgraden som skal oppdateres.
-            gains: Nye PID-forsterkningsverdier for den valgte aksen.
-
-        Raises:
-            IndexError: Hvis axis-verdien er utenfor 0-5.
-        """
-        idx = int(axis)
-        self._controllers[idx].set_gains(gains)
+        """Sett PID-forsterkning for én akse."""
+        self._controllers[int(axis)].set_gains(gains)
 
     def set_gains(self, gains: PIDGains) -> None:
-        """Oppdater forsterkningsparametrene for alle 6 akser.
-
-        Args:
-            gains: Nye PID-forsterkningsverdier.
-        """
+        """Oppdater forsterkningene for alle tre akser."""
         for controller in self._controllers:
             controller.set_gains(gains)
-
-    def trigger_step_response(
-        self, axis: Axis, from_val: float, to_val: float
-    ) -> None:
-        """Start et step-respons-eksperiment på en akse.
-
-        Oppretter en StepResponseRecorder som samler data
-        (tidspunkt, setpunkt, faktisk verdi) per tick.
-
-        Eventuell tidligere aktiv recorder for samme akse
-        avsluttes automatisk.
-
-        Args:
-            axis: Aksen som skal stepes.
-            from_val: Startverdi for steppet.
-            to_val: Ny setpunktverdi.
-        """
-        # Avslutt eventuell aktiv recorder for denne aksen
-        old = self._step_recorders.get(axis)
-        if old is not None and old.is_active:
-            old.finish()
-        self._step_recorders[axis] = StepResponseRecorder(axis, from_val, to_val)
-
-    def get_step_response_recorder(
-        self, axis: Axis
-    ) -> Optional[StepResponseRecorder]:
-        """Hent step-respons-recorder for en akse.
-
-        Brukes av GUI polling worker for å lese step-respons-data.
-
-        Args:
-            axis: Aksen å hente recorder for.
-
-        Returns:
-            StepResponseRecorder eller None hvis ingen er aktiv.
-        """
-        return self._step_recorders.get(axis)
-
-    def add_response_listener(self, callback: ResponseListener) -> None:
-        """Registrer en lytter for step-respons-samples.
-
-        Lytteren kalles med (axis, timestamp, setpoint, actual) for
-        hvert sample som registreres under et aktivt step-respons-
-        eksperiment.
-
-        Args:
-            callback: Funksjon som kalles med sample-data.
-        """
-        self._response_listeners.append(callback)
-
-    def remove_response_listener(self, callback: ResponseListener) -> None:
-        """Fjern en tidligere registrert lytter.
-
-        Args:
-            callback: Lytteren som skal fjernes.
-        """
-        self._response_listeners.remove(callback)
-
-    def _notify_listeners(
-        self, axis: Axis, timestamp: float, setpoint: float, actual: float
-    ) -> None:
-        """Varsle alle registrerte lyttere om en ny sample."""
-        for listener in self._response_listeners:
-            listener(axis, timestamp, setpoint, actual)

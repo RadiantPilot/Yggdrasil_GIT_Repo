@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from ..bridge.controller_bridge import ControllerBridge
 from ..bridge.state_snapshot import StateSnapshot
-from ..utils.formatting import fmt_deg, fmt_mm
+from ..utils.formatting import fmt_deg
 from ..widgets.event_log import EventLog
 from ..widgets.servo_bars import ServoBars
 from ..widgets.status_banner import StatusBanner
@@ -46,8 +46,8 @@ class OverviewTab(QWidget):
         mid = QHBoxLayout()
         mid.setSpacing(12)
 
-        # Pose-boks
-        pose_box = QGroupBox("Pose")
+        # Orientering-boks
+        pose_box = QGroupBox("Orientering")
         pg = QGridLayout(pose_box)
         pg.setSpacing(4)
 
@@ -58,11 +58,9 @@ class OverviewTab(QWidget):
         pg.addWidget(self._hdr("Mål", header_style), 0, 2)
 
         self._pose_labels: list[tuple[QLabel, QLabel]] = []
-        axes = [("X", "mm"), ("Y", "mm"), ("Z", "mm"),
-                ("Roll", "°"), ("Pitch", "°"), ("Yaw", "°")]
-        for i, (name, unit) in enumerate(axes):
+        for i, name in enumerate(["Roll", "Pitch", "Yaw"]):
             row = i + 1
-            pg.addWidget(self._hdr(f"{name} ({unit})", "font-size: 11px; font-weight: 500;"), row, 0)
+            pg.addWidget(self._hdr(f"{name} (°)", "font-size: 11px; font-weight: 500;"), row, 0)
             cur = QLabel("—")
             cur.setStyleSheet(lbl_style)
             cur.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -133,17 +131,14 @@ class OverviewTab(QWidget):
         else:
             self._banner.set_status("stopped", "System stoppet", "")
 
-        # Pose
+        # Orientering (3 akser)
         cur = snapshot.current_pose
         tgt = snapshot.target_pose
-        cur_vals = [cur.translation.x, cur.translation.y, cur.translation.z,
-                    cur.rotation.x, cur.rotation.y, cur.rotation.z]
-        tgt_vals = [tgt.translation.x, tgt.translation.y, tgt.translation.z,
-                    tgt.rotation.x, tgt.rotation.y, tgt.rotation.z]
+        cur_vals = [cur.rotation.x, cur.rotation.y, cur.rotation.z]
+        tgt_vals = [tgt.rotation.x, tgt.rotation.y, tgt.rotation.z]
         for i, (c_lbl, t_lbl) in enumerate(self._pose_labels):
-            fmt = fmt_mm if i < 3 else fmt_deg
-            c_lbl.setText(fmt(cur_vals[i]))
-            t_lbl.setText(fmt(tgt_vals[i]))
+            c_lbl.setText(fmt_deg(cur_vals[i]))
+            t_lbl.setText(fmt_deg(tgt_vals[i]))
 
         # IMU
         a = snapshot.imu_acceleration

@@ -83,21 +83,8 @@ class SafetyMonitor:
         self._check_history: deque[SafetyCheckResult] = deque(maxlen=100)
 
     def validate_pose(self, pose: Pose) -> bool:
-        """Sjekk om en pose er innenfor tillatte grenser.
-
-        Sjekker at translasjon og rotasjon ikke overskrider
-        max_translation_mm og max_rotation_deg.
-
-        Args:
-            pose: Posen som skal valideres.
-
-        Returns:
-            True hvis posen er innenfor grensene.
-        """
-        return pose.is_within_bounds(
-            self._config.max_translation_mm,
-            self._config.max_rotation_deg,
-        )
+        """Sjekk om rotasjonen er innenfor max_rotation_deg."""
+        return pose.is_within_bounds(self._config.max_rotation_deg)
 
     def _servos_outside_margin(self, angles: List[float]) -> List[str]:
         """Returner detaljerte beskrivelser av servoer utenfor margin.
@@ -140,34 +127,12 @@ class SafetyMonitor:
         previous: Pose,
         dt: float,
     ) -> bool:
-        """Sjekk at bevegelseshastigheten er innenfor tillatte grenser.
-
-        Beregner lineær og vinkelhastighet mellom to påfølgende
-        poser, og sammenligner med max_velocity_mm_per_s og
-        max_angular_velocity_deg_per_s.
-
-        Args:
-            current: Nåværende pose.
-            previous: Forrige pose.
-            dt: Tid mellom de to posene i sekunder.
-
-        Returns:
-            True hvis hastigheten er innenfor grensene.
-        """
+        """Sjekk at vinkelhastigheten er innenfor max_angular_velocity_deg_per_s."""
         if dt <= 0:
             return True
-
-        delta_trans = current.translation - previous.translation
-        linear_speed = delta_trans.magnitude() / dt
-        if linear_speed > self._config.max_velocity_mm_per_s:
-            return False
-
         delta_rot = current.rotation - previous.rotation
         angular_speed = delta_rot.magnitude() / dt
-        if angular_speed > self._config.max_angular_velocity_deg_per_s:
-            return False
-
-        return True
+        return angular_speed <= self._config.max_angular_velocity_deg_per_s
 
     def validate_imu_readings(self, accel: Vector3) -> bool:
         """Sjekk at IMU-akselerasjonsdata er innenfor fornuftige verdier.
@@ -284,9 +249,7 @@ class SafetyMonitor:
 
         if not self.validate_pose(pose):
             violations.append(
-                f"Pose utenfor grenser: trans={pose.translation.magnitude():.1f}mm "
-                f"(maks {self._config.max_translation_mm}), "
-                f"rot={pose.rotation.magnitude():.1f}° "
+                f"Rotasjon utenfor grenser: |r|={pose.rotation.magnitude():.1f}° "
                 f"(maks {self._config.max_rotation_deg})."
             )
 
@@ -300,16 +263,9 @@ class SafetyMonitor:
                 f"(terskel {self._config.imu_fault_threshold_g * 9.81:.2f})."
             )
 
-        delta_trans = pose.translation - self._last_pose.translation
-        delta_rot = pose.rotation - self._last_pose.rotation
         if dt > 0:
-            lin_speed = delta_trans.magnitude() / dt
+            delta_rot = pose.rotation - self._last_pose.rotation
             ang_speed = delta_rot.magnitude() / dt
-            if lin_speed > self._config.max_velocity_mm_per_s:
-                violations.append(
-                    f"Lineær hastighet over grense: {lin_speed:.1f} mm/s "
-                    f"(maks {self._config.max_velocity_mm_per_s})."
-                )
             if ang_speed > self._config.max_angular_velocity_deg_per_s:
                 violations.append(
                     f"Vinkelhastighet over grense: {ang_speed:.1f} °/s "

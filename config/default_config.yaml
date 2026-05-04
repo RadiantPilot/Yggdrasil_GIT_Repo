@@ -129,11 +129,10 @@ pid_gains:
 control_loop_rate_hz: 50.0
 
 # --- Sikkerhetsgrenser ---
-# Juster etter behov. Start konservativt og utvid gradvis.
+# Plattformen styres kun rotasjonelt — translasjon-grenser er fjernet.
 safety_config:
-  max_translation_mm: 50.0             # Maks avstand fra senter
+  enabled: true                        # Slå av for bringup/tuning
   max_rotation_deg: 30.0               # Maks rotasjon fra nøytral
-  max_velocity_mm_per_s: 100.0         # Maks lineær hastighet
   max_angular_velocity_deg_per_s: 60.0 # Maks vinkelhastighet
   servo_angle_margin_deg: 1.0          # Sikkerhetsmargin fra mekanisk grense
   watchdog_timeout_s: 1.0              # Watchdog-tidsgrense
@@ -156,7 +155,6 @@ button_config:
   i2c_address: 0x20
   i2c_button_bits: [0, 1, 2, 3, 4]
   nudge_steps:
-    translation_mm: 1.0
     rotation_deg: 1.0
     pid_kp: 0.05
     pid_ki: 0.05
