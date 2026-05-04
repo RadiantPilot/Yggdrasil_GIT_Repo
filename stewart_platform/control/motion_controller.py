@@ -92,6 +92,13 @@ class MotionController:
         # Forrige tick sin klemmingstilstand. Brukes for å varsle
         # GUI kun ved tilstandsovergang (ikke 50 Hz spam).
         self._previous_clamp_state = False
+        # Forrige tick sin safety-status. Når safety_monitor rapporterer
+        # brudd hver iterasjon (typisk hastighetsbrudd pga IMU-støy +
+        # 50 Hz PID-output-svingning), vil 50 Hz signal-emit pakke
+        # Qt-signalkøen og gjøre GUI-en uresponsiv. Vi varsler derfor
+        # kun ved overgang safe→unsafe og endret bruddmengde.
+        self._previous_safety_safe = True
+        self._last_safety_violations: List[str] = []
 
         # Trådhåndtering. Lock beskytter target/current pose mellom
         # GUI-tråd og kontrolltråd. Event signaliserer at løkken
@@ -398,15 +405,28 @@ class MotionController:
                 correction, angles, accel, dt
             )
             if not result.is_safe:
-                self._notify_safety_violations(
-                    result.severity, list(result.violations)
-                )
+                # Varsle kun ved tilstandsovergang eller når selve
+                # bruddmengden endrer seg — ellers ville en konstant
+                # bruddtilstand spamme signal-køen 50 Hz.
+                violations_now = list(result.violations)
+                if (
+                    self._previous_safety_safe
+                    or violations_now != self._last_safety_violations
+                ):
+                    self._notify_safety_violations(result.severity, violations_now)
+                    self._last_safety_violations = violations_now
+                self._previous_safety_safe = False
                 if result.severity is SafetySeverity.CRITICAL:
                     self.emergency_stop()
                     return
                 if result.severity is SafetySeverity.ERROR:
                     return
                 # WARNING: la kommandoen gå gjennom, lytteren har fått varselet.
+            else:
+                # Tilbake til safe — nullstill slik at neste brudd igjen
+                # blir sett som en kantovergang.
+                self._previous_safety_safe = True
+                self._last_safety_violations = []
 
         # 6: Sett servovinkler
         if self._servo_array is not None:

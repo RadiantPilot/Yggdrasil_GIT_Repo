@@ -1,11 +1,11 @@
 # Terminalguide
 
-Hvordan sette opp og kjore prosjektet pa Raspberry Pi-en.
+Hvordan sette opp og kjøre prosjektet pa Raspberry Pi-en.
 
 
 ## Forstegangsoppsett
 
-Gjores en gang per Pi.
+Gjøres en gang per Pi.
 
 
 ### 1. SSH fra VS Code til Pi-en
@@ -42,7 +42,7 @@ source .venv/bin/activate
 ```
 
 `(.venv)` skal vises foran prompten.
-
+Dette er et virituelt miljø og trengs for å laste ned pakker til prosjektet.
 
 ### 5. Installer pakker
 
@@ -56,21 +56,21 @@ Pakkegrupper:
 - `hardware` - smbus2
 - `dev` - pytest
 
-Tar 5-15 min forste gang. `-e` gjor at kodeendringer trer i kraft uten ny install.
+Kan ta noen få minutter første gang. `-e` gjor at kodeendringer trer i kraft uten ny install.
 
 
 
 ## Daglig bruk
 
 
-### Aktiver venv
+### Aktiver venv (virituelt miljø)
 
 ```bash
 source .venv/bin/activate
 ```
 
 
-### Hent siste endringer
+### Hent siste endringer fra github repoet
 
 ```bash
 git pull
@@ -79,13 +79,26 @@ git pull
 
 ### Skru pa PWM-utgangene (GPIO 18 lav)
 
-PCA9685 sin OE-pinne er koblet til GPIO 18. Den ma settes lav for at servoene skal motta signal:
+PCA9685 sin OE-pinne er koblet til GPIO 18. Den må settes lav for at servoene skal motta signal:
 
+Sjekker status på pin 18
 ```bash
-gpioset gpiochip0 18=0
+pinctrl get 18
+```
+Sett pin 18 output lav 
+```bash
+pinctrl set 18 op dl
+```
+Sett pin 18 output høy
+```bash
+pinctrl set 18 op dh
+```
+Sett pin 18 som input med pull up
+```bash
+pinctrl set 18 ip pu
 ```
 
-OE er aktiv lav. Settes GPIO 18 hoy igjen kuttes alle PWM-signaler - praktisk som rask nodstopp.
+Når GPIO 18 er satt til å være høy kuttes alle PWM-signaler. Har planer om å bruke aktivt i prosjektet, men det er ikke integret per dags dato (03.05). 
 
 
 ### Kjor tester
@@ -94,7 +107,7 @@ OE er aktiv lav. Settes GPIO 18 hoy igjen kuttes alle PWM-signaler - praktisk so
 python -m pytest tests/ -v
 ```
 
-Mocker maskinvaren, trenger ingen tilkoblinger.
+Sjekker om det har oppstått noen følgefeil som resultat av endringer av koden. 
 
 
 ### GUI med mock
@@ -103,16 +116,16 @@ Mocker maskinvaren, trenger ingen tilkoblinger.
 python -m stewart_platform.gui --mock
 ```
 
-Simulerer all hardware. Nyttig pa PC eller for hardware er klar.
+Viser hvordan GUI ser ut, uten at hardware er satt opp eller tilkoblet.
 
 
-### Full kjoring
+### Full kjøring
 
 ```bash
 python -m stewart_platform.gui
 ```
 
-Forste gang: kjor uten servostrom, slik at I2C-init kan feile trygt.
+Husk å koble til labbspenning. Hvis du ikke gjør det kommer du til å få mye feilmeldinger.
 
 
 ### Uten GUI
@@ -147,4 +160,4 @@ python test_run.py
 sudo i2cdetect -y 1
 ```
 
-Skal vise `40` (PCA9685) og `6a` (IMU). Bare `--` betyr som regel feil med GND, VCC eller pull-up.
+Skal vise `40` (PCA9685) og `6a` (IMU). Bare `--` betyr som regel feil med GND, VCC eller pull-up. `--` kan også komme av at labbspenningen ikke er koblet til.

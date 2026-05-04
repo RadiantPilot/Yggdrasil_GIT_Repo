@@ -12,9 +12,19 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
+from PySide6.QtCore import QTimer
 
 from ..utils.ring_buffer import RingBuffer
 from ..utils.theme import Theme, ThemeManager
+
+# Maksimal visuell oppdateringsfrekvens i Hz. Pyqtgraph setData()
+# kan ta 30-100 ms per kall på Raspberry Pi 4B med flere grafer
+# samtidig — uten throttle blir GUI-tråden overbelastet og hele
+# applikasjonen oppfattes som "frosset". 5 Hz er flytende nok for
+# operatørens øye, og data legges fortsatt inn i ringbufferen ved
+# full snapshot-rate slik at tegningen er sannferdig når den skjer.
+_RENDER_HZ = 5
+_RENDER_INTERVAL_MS = int(1000 / _RENDER_HZ)
 
 # Farger for opptil 6 serier (samme for begge tema)
 _COLORS = ["#4a9a3c", "#3498db", "#e74c3c", "#f39c12", "#9b59b6", "#1abc9c"]
@@ -71,6 +81,16 @@ class RealtimePlot(pg.PlotWidget):
         self._apply_theme(mgr.current)
         mgr.theme_changed.connect(self._apply_theme)
 
+        # Throttle-rendering: append_values legger inn data straks,
+        # men selve setData()-tegningen skjer kun ved jevne tick fra
+        # denne timeren — slik at GUI-tråden ikke overbelastes når
+        # snapshots kommer raskere enn pyqtgraph rekker å tegne.
+        self._dirty = False
+        self._render_timer = QTimer(self)
+        self._render_timer.setInterval(_RENDER_INTERVAL_MS)
+        self._render_timer.timeout.connect(self._do_refresh)
+        self._render_timer.start()
+
     # ------------------------------------------------------------------
     # Tema
     # ------------------------------------------------------------------
@@ -99,9 +119,23 @@ class RealtimePlot(pg.PlotWidget):
         for i, v in enumerate(values):
             if i < len(self._buffers):
                 self._buffers[i].append(v)
+        self._dirty = True
 
     def refresh(self) -> None:
-        """Oppdater kurvene fra bufferdata. Kall etter append_values."""
+        """Marker at data er endret — selve tegningen skjer via timer.
+
+        Beholdt som offentlig API for bakoverkompatibilitet med
+        kallende kode (imu_tab, pid_tuning_tab) som forventer å kunne
+        be om en oppdatering. Vi setter bare dirty-flagget her; den
+        faktiske setData() utføres av _do_refresh ved neste tick.
+        """
+        self._dirty = True
+
+    def _do_refresh(self) -> None:
+        """Tegn kurvene hvis det er nye data siden forrige tick."""
+        if not self._dirty:
+            return
+        self._dirty = False
         for i, (buf, curve) in enumerate(zip(self._buffers, self._curves)):
             if not self._visible[i]:
                 curve.setData([], [])
@@ -114,7 +148,10 @@ class RealtimePlot(pg.PlotWidget):
         """Tøm all data."""
         for buf in self._buffers:
             buf.clear()
-        self.refresh()
+        # Tving en umiddelbar tegning slik at den blanke tilstanden
+        # vises uten å vente på neste timer-tick.
+        self._dirty = True
+        self._do_refresh()
 
     # ------------------------------------------------------------------
     # Kontroll
