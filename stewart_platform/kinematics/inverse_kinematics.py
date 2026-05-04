@@ -1,8 +1,8 @@
 # inverse_kinematics.py
 # =====================
 # Invers kinematikk-solver for Stewart-plattformen.
-# Gitt en ønsket 6-DOF pose (translasjon + rotasjon), beregner
-# denne klassen de 6 servovinklene som trengs for å oppnå posen.
+# Gitt en ønsket rotasjonspose, beregner denne klassen de 6
+# servovinklene som trengs for å oppnå posen.
 # Dette er det matematiske hjertet i styringssystemet.
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from ..geometry.vector3 import Vector3
 class InverseKinematics:
     """Invers kinematikk-solver for Stewart-plattformen.
 
-    Tar en ønsket 6-DOF pose og beregner hvilke vinkler de 6
+    Tar en ønsket rotasjonspose og beregner hvilke vinkler de 6
     servomotorene må stå i for å oppnå den posen. Bruker
     plattformens geometriske modell og servokonfigurasjon
     (armlengde, monteringsvinkel) for beregningene.
@@ -89,7 +89,7 @@ class InverseKinematics:
         det skjedde.
 
         Args:
-            pose: Ønsket 6-DOF pose for toppplaten.
+            pose: Ønsket rotasjonspose for toppplaten.
 
         Returns:
             Liste med 6 servovinkler i grader.

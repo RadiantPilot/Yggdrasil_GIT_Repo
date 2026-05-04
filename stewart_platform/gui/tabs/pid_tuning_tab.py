@@ -133,6 +133,11 @@ class _RotationSliders(QWidget):
         for i, v in enumerate([rotation.x, rotation.y, rotation.z]):
             self._current_labels[i].setText(f"{v:+.2f}")
 
+    def set_target_and_emit(self, rotation: Vector3) -> None:
+        """Sett slider-verdier og emitter signal."""
+        self.set_target(rotation)
+        self._emit()
+
     def reset_to_zero(self) -> None:
         """Sett alle akser til 0."""
         self._updating = True
@@ -313,8 +318,7 @@ class PidTuningTab(QWidget):
     def _preset_axis(self, idx: int, value: float) -> None:
         rot = [0.0, 0.0, 0.0]
         rot[idx] = value
-        self._sliders.set_target(Vector3(*rot))
-        self._sliders._emit()
+        self._sliders.set_target_and_emit(Vector3(*rot))
 
     @Slot(int)
     def _on_window_changed(self, _index: int) -> None:
@@ -339,7 +343,6 @@ class PidTuningTab(QWidget):
             card.set_error(err)
             values.append(err)
         self._error_plot.append_values(values)
-        self._error_plot.refresh()
 
         # Synkroniser PID-kort hvis gains er endret eksternt
         for axis, card in self._cards.items():

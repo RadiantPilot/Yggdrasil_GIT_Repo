@@ -182,7 +182,7 @@ class MotionController:
         Posen valideres mot sikkerhetsgrenser før den aksepteres.
 
         Args:
-            pose: Ønsket 6-DOF pose (translasjon + rotasjon).
+            pose: Ønsket rotasjonspose.
 
         Returns:
             True hvis posen ble akseptert, False hvis den ble avvist.
@@ -491,7 +491,7 @@ class MotionController:
         """Hent estimert orientering for bunnplaten.
 
         Returns:
-            Estimert 6-DOF pose basert på bunnplate-IMU-fusjon.
+            Estimert rotasjonspose basert på bunnplate-IMU-fusjon.
         """
         with self._lock:
             return self._current_pose

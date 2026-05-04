@@ -47,6 +47,9 @@ class EventLog(QWidget):
         scroll.setWidget(self._container)
         layout.addWidget(scroll)
 
+    def __len__(self) -> int:
+        return len(self._events)
+
     def add_event(self, level: str, message: str) -> None:
         """Legg til en ny hendelse."""
         ev = Event(timestamp=time.time(), level=level, message=message)

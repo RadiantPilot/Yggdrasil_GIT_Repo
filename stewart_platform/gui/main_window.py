@@ -1,10 +1,8 @@
 """
 main_window.py · QMainWindow — rotkomponenten for GUI-et.
 
-Inneholder QTabWidget med de 6 tabbene (Oversikt, Pose, PID, IMU,
+Inneholder QTabWidget med de 5 tabbene (Oversikt, PID-tuning, IMU,
 Konfig, Sikkerhet) og en topbar med grunnleggende kontroller.
-I Fase 1 er tabs bare placeholder-widgets med oppdatert klokke og
-status — det er nok til å bekrefte at polling-kjeden fungerer.
 """
 
 from __future__ import annotations
@@ -134,7 +132,7 @@ class MainWindow(QMainWindow):
         )
 
     def _build_tabs(self) -> None:
-        """Bygger QTabWidget med de 6 hovedtabbene."""
+        """Bygger QTabWidget med de 5 hovedtabbene."""
         self._tabs = QTabWidget()
         self._tabs.setDocumentMode(True)
 

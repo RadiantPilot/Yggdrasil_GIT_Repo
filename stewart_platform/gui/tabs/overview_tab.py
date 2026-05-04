@@ -160,7 +160,7 @@ class OverviewTab(QWidget):
         # Hendelseslogg — oppdater fra bridge-events
         events = self._bridge.get_events()
         # Bare legg til nye hendelser (sjekk om loggen er synkronisert)
-        current_count = len(self._event_log._events)
+        current_count = len(self._event_log)
         if len(events) > current_count:
             for ev in reversed(events[current_count:]):
                 self._event_log.add_event(ev.level, ev.message)

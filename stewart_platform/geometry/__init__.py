@@ -1,7 +1,7 @@
 # geometry
 # ========
 # Geometripakke for Stewart-plattformen.
-# Inneholder matematiske modeller for 3D-vektorer, 6-DOF poser
+# Inneholder matematiske modeller for 3D-vektorer, rotasjonsposer
 # og plattformens fysiske geometri (leddposisjoner, beinlengder).
 
 from .vector3 import Vector3
