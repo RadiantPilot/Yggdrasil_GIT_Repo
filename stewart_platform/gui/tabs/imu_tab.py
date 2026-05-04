@@ -72,7 +72,11 @@ class ImuTab(QWidget):
 
         # Orientering
         ori_box = QGroupBox("Orientering (fusjon)")
-        og = QGridLayout(ori_box)
+        # Merk: ingen parent her — vi monterer `og` inn i `ori_layout`
+        # under, og setter `ori_layout` som boks-layout. Hvis vi sender
+        # ori_box inn i konstruktøren får `og` to parents og Qt logger
+        # "QLayout::addChildLayout: layout QGridLayout already has a parent".
+        og = QGridLayout()
         og.setSpacing(8)
 
         lbl_style = "font-family: monospace; font-size: 14px;"

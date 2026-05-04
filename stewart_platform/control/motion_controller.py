@@ -508,15 +508,36 @@ class MotionController:
         return self._servo_array.get_angles()
 
     def get_imu_snapshot(self) -> tuple[Vector3, Vector3, Vector3]:
-        """Hent siste cachede IMU-verdier (accel, gyro, orientering).
+        """Hent siste IMU-verdier (accel, gyro, orientering).
 
-        Polling-worker bruker denne i stedet for å lese I2C selv,
-        slik at vi unngår konkurranse om I2C-lock med kontroll-tråden.
-        Cachen oppdateres ved hver step()-iterasjon, og pre-fylles av
-        initialize() slik at den har gyldige verdier fra første tick.
+        Når kontroll-tråden kjører returneres cachet verdier som
+        step() oppdaterer 50 Hz — slik unngår vi I2C-konkurranse.
+
+        Når kontroll-tråden står stille (før operatøren har trykket
+        Start) leses IMU direkte og cachen oppdateres. Uten dette
+        ville GUI-grafer vise en flatlinje på siste pre-fyllte verdi
+        helt til Start trykkes. Det er trygt fordi det da ikke er
+        noen annen tråd som rører I2C-bussen.
         """
+        if self.is_running() or self._base_imu is None:
+            with self._lock:
+                return self._last_accel, self._last_gyro, self._last_orientation
+
+        accel = self._base_imu.read_acceleration()
+        gyro = self._base_imu.read_angular_velocity()
+        if self._imu_fusion is not None:
+            orient = self._imu_fusion.update(accel, gyro, 1.0 / self._loop_rate_hz)
+        else:
+            orient = Vector3(0.0, 0.0, 0.0)
+        # Oppdater også current_pose slik at PID-feilgrafen i pid-tab
+        # viser ekte feil mot mål-pose før Start, og ikke bare null.
+        new_current = Pose(rotation=orient)
         with self._lock:
-            return self._last_accel, self._last_gyro, self._last_orientation
+            self._last_accel = accel
+            self._last_gyro = gyro
+            self._last_orientation = orient
+            self._current_pose = new_current
+        return accel, gyro, orient
 
     def is_running(self) -> bool:
         """Sjekk om kontrollsløyfen kjører.
