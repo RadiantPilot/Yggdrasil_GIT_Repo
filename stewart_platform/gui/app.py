@@ -19,8 +19,14 @@ import signal
 import sys
 from pathlib import Path
 
+import pyqtgraph as pg
 from PySide6.QtCore import QThread, Qt
 from PySide6.QtWidgets import QApplication
+
+# Globale pyqtgraph-innstillinger må settes før noen PlotWidget bygges.
+# Antialiasing og OpenGL er begge ekstremt dyre på Pi 4B uten GPU —
+# sett dem av eksplisitt for å gi deterministisk, lett rendering.
+pg.setConfigOptions(antialias=False, useOpenGL=False)
 
 from ..config.button_config import ButtonConfig
 from ..hardware.button_interface import ButtonInterface
@@ -50,8 +56,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rate",
         type=float,
-        default=15.0,
-        help="Oppdateringsfrekvens for GUI-polling i Hz (default 15).",
+        default=8.0,
+        help="Oppdateringsfrekvens for GUI-polling i Hz (default 8).",
     )
     parser.add_argument(
         "--theme",

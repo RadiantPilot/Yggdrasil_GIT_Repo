@@ -9,6 +9,10 @@ status — det er nok til å bekrefte at polling-kjeden fungerer.
 
 from __future__ import annotations
 
+import os
+import sys
+import time
+
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -32,6 +36,10 @@ from .tabs.overview_tab import OverviewTab
 from .tabs.pid_tuning_tab import PidTuningTab
 from .tabs.safety_tab import SafetyTab
 from .utils.theme import ThemeManager
+
+# Sett YGGDRASIL_PERF=1 for å logge snapshot-prosessering > 50 ms til
+# stderr — gir et målbart bilde av hvilke faner som er flaskehals.
+_PERF = os.environ.get("YGGDRASIL_PERF") == "1"
 
 
 class MainWindow(QMainWindow):
@@ -205,15 +213,25 @@ class MainWindow(QMainWindow):
         """Mottar nye StateSnapshots fra PollingWorker og ruter til aktiv tab.
 
         For å spare CPU oppdaterer vi kun den aktivt synlige tab-en.
-        Alle tabs er likevel abonnenter — metoden `update_from_snapshot`
-        er idempotent og kan trygt kalles oftere.
         """
+        t0 = time.perf_counter() if _PERF else 0.0
+
         self._last_snapshot = snapshot
         self._lbl_rate.setText(f"{snapshot.loop_frequency_hz:5.1f} Hz")
 
         current = self._tabs.currentWidget()
         if hasattr(current, "update_from_snapshot"):
             current.update_from_snapshot(snapshot)
+
+        if _PERF:
+            dt_ms = (time.perf_counter() - t0) * 1000
+            if dt_ms > 50:
+                print(
+                    f"[perf] on_snapshot {dt_ms:.1f} ms "
+                    f"(fane: {type(current).__name__})",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
     @Slot(int)
     def _on_tab_changed(self, index: int) -> None:

@@ -36,37 +36,10 @@ class ImuTab(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        # --- Øverste rad: tre grafer ---
-        graphs = QHBoxLayout()
-        graphs.setSpacing(12)
-
-        # Akselerasjon
-        accel_box = QGroupBox("Akselerasjon (m/s²)")
-        al = QVBoxLayout(accel_box)
-        self._accel_plot = RealtimePlot(
-            series_names=["X", "Y", "Z"],
-            window_size=200,
-            y_label="m/s²",
-        )
-        self._accel_plot.setMinimumHeight(180)
-        al.addWidget(self._accel_plot)
-        graphs.addWidget(accel_box)
-
-        # Gyroskop
-        gyro_box = QGroupBox("Gyroskop (°/s)")
-        gl = QVBoxLayout(gyro_box)
-        self._gyro_plot = RealtimePlot(
-            series_names=["X", "Y", "Z"],
-            window_size=200,
-            y_label="°/s",
-        )
-        self._gyro_plot.setMinimumHeight(180)
-        gl.addWidget(self._gyro_plot)
-        graphs.addWidget(gyro_box)
-
-        root.addLayout(graphs, 2)
-
-        # --- Nedre rad: orientering + kalibrering ---
+        # --- Øvre rad: orientering + kalibrering ---
+        # Accel og gyro vises kun som tall i kalibreringsboksens rå-grid;
+        # plattformen styres rotasjonelt og bevegelseshistorikk for de
+        # andre aksene tilfører ikke verdi for tuning.
         lower = QHBoxLayout()
         lower.setSpacing(12)
 
@@ -89,13 +62,14 @@ class ImuTab(QWidget):
             og.addWidget(val, i, 1)
             self._ori_labels[name.lower()] = val
 
-        # Orienterings-graf
+        # Orienterings-graf — fast Y-range matcher safety_config.max_rotation_deg
         self._ori_plot = RealtimePlot(
             series_names=["Roll", "Pitch", "Yaw"],
-            window_size=200,
+            window_size=120,
             y_label="°",
+            y_range=(-30.0, 30.0),
         )
-        self._ori_plot.setMinimumHeight(120)
+        self._ori_plot.setMinimumHeight(180)
         ori_layout = QVBoxLayout()
         ori_layout.addLayout(og)
         ori_layout.addWidget(self._ori_plot)
@@ -219,21 +193,12 @@ class ImuTab(QWidget):
         g = snapshot.imu_angular_velocity
         o = snapshot.imu_orientation
 
-        # Akselerasjon-graf
-        self._accel_plot.append_values([a.x, a.y, a.z])
-        self._accel_plot.refresh()
-
-        # Gyro-graf
-        self._gyro_plot.append_values([g.x, g.y, g.z])
-        self._gyro_plot.refresh()
-
         # Orientering
         self._ori_labels["roll"].setText(f"{o[0]:+.2f}°")
         self._ori_labels["pitch"].setText(f"{o[1]:+.2f}°")
         self._ori_labels["yaw"].setText(f"{o[2]:+.2f}°")
 
         self._ori_plot.append_values([o[0], o[1], o[2]])
-        self._ori_plot.refresh()
 
         # Råverdier
         self._raw_labels["accel_x"].setText(f"{a.x:+.4f}")

@@ -85,7 +85,7 @@ Sjekker status på pin 18
 ```bash
 pinctrl get 18
 ```
-Sett pin 18 output lav 
+Sett pin 18 output lav (det du må gjøre i oppsett fasen)
 ```bash
 pinctrl set 18 op dl
 ```
@@ -101,7 +101,7 @@ pinctrl set 18 ip pu
 Når GPIO 18 er satt til å være høy kuttes alle PWM-signaler. Har planer om å bruke aktivt i prosjektet, men det er ikke integret per dags dato (03.05). 
 
 
-### Kjor tester
+### Kjør tester
 
 ```bash
 python -m pytest tests/ -v
@@ -116,7 +116,7 @@ Sjekker om det har oppstått noen følgefeil som resultat av endringer av koden.
 python -m stewart_platform.gui --mock
 ```
 
-Viser hvordan GUI ser ut, uten at hardware er satt opp eller tilkoblet.
+Viser hvordan GUI ser ut, uten at hardware er satt opp eller tilkoblet. Dette er altså bare en simulering.
 
 
 ### Full kjøring
@@ -152,7 +152,7 @@ python test_run.py
 
 
 ## Mulige feil
-
+Nesten alle feilene (hvor koden ikke kjører) har kommet av at labbspenning er skrudd av, så sjekk dette før annen eventuell feilsøking
 
 ### I2C henger seg opp
 

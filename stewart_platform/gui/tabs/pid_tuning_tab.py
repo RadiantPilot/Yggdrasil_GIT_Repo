@@ -241,10 +241,13 @@ class PidTuningTab(QWidget):
 
         err_box = QGroupBox("PID-feil (sanntid)")
         eg = QVBoxLayout(err_box)
+        # Fast Y-range matcher rotasjonsgrensene — feilen kan ikke
+        # bli mye større enn ±max_rotation_deg uten å trigge safety.
         self._error_plot = RealtimePlot(
             series_names=["Roll", "Pitch", "Yaw"],
-            window_size=200,
+            window_size=120,
             y_label="Feil (°)",
+            y_range=(-30.0, 30.0),
         )
         self._error_plot.setMinimumHeight(260)
         eg.addWidget(self._error_plot)
@@ -263,7 +266,8 @@ class PidTuningTab(QWidget):
         ctrl.addStretch()
         ctrl.addWidget(QLabel("Tidsvindu:"))
         self._window_combo = QComboBox()
-        for label, samples in [("5 s", 75), ("10 s", 150), ("20 s", 300), ("60 s", 900)]:
+        # Antagelser: 8 Hz polling × samples = sekunder.
+        for label, samples in [("5 s", 40), ("15 s", 120), ("30 s", 240), ("60 s", 480)]:
             self._window_combo.addItem(label, samples)
         self._window_combo.setCurrentIndex(1)
         self._window_combo.currentIndexChanged.connect(self._on_window_changed)

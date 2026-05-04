@@ -125,8 +125,9 @@ pid_gains:
   output_max: 5.0              # Maks korreksjon oppover per tick
   integral_limit: 100.0        # Anti-windup grense
 
-# Kontrollsløyfe-frekvens i Hz.
-control_loop_rate_hz: 50.0
+# Kontrollsløyfe-frekvens i Hz. Holdt lavt (25 Hz) for å gi
+# polling- og knapp-tråden god margin på I2C-locken på Pi 4B.
+control_loop_rate_hz: 25.0
 
 # --- Sikkerhetsgrenser ---
 # Plattformen styres kun rotasjonelt — translasjon-grenser er fjernet.
