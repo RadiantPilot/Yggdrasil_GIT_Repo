@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 import pyqtgraph as pg
-from PySide6.QtCore import QThread, Qt
+from PySide6.QtCore import QThread, QTimer, Qt
 from PySide6.QtWidgets import QApplication
 
 # Globale pyqtgraph-innstillinger må settes før noen PlotWidget bygges.
@@ -32,7 +32,6 @@ from ..config.button_config import ButtonConfig
 from ..hardware.button_interface import ButtonInterface
 from .bridge.button_worker import ButtonWorker
 from .bridge.controller_bridge import ControllerBridge
-from .bridge.polling_worker import PollingWorker
 from .main_window import MainWindow
 from .utils.theme import DARK, LIGHT, ThemeManager
 
@@ -136,25 +135,29 @@ def main() -> int:
     bridge = ControllerBridge(config_path=args.config, mock=args.mock)
     bridge.initialize()
 
-    # Start polling-worker på egen tråd
-    worker_thread = QThread()
-    worker_thread.setObjectName("YggdrasilPollingThread")
-    worker = PollingWorker(bridge, rate_hz=args.rate)
-    worker.moveToThread(worker_thread)
-    worker_thread.started.connect(worker.run)
-
     # Hovedvindu
     window = MainWindow(bridge)
-    worker.snapshot_ready.connect(window.on_snapshot, Qt.QueuedConnection)
-    # Polling-feil (f.eks. midlertidig I2C-glitch) logges som event
-    # slik at brukeren ser at noe er galt — workeren kjører videre.
-    worker.error_occurred.connect(
-        lambda msg: bridge._log_event("FAIL", f"Polling-feil: {msg}"),
-        Qt.QueuedConnection,
-    )
     window.show()
 
-    worker_thread.start()
+    # Polling via enkel QTimer i GUI-tråden — ingen separat tråd, ingen
+    # cross-thread signal-kø. get_snapshot() leser kun cachet data og er
+    # trygt å kalle fra GUI-tråden. Single-shot-mønster sørger for at
+    # neste tick bare planlegges etter forrige er ferdig.
+    poll_interval_ms = max(50, int(1000 / args.rate))
+    poll_timer = QTimer()
+    poll_timer.setSingleShot(True)
+
+    def _on_poll_tick() -> None:
+        try:
+            snapshot = bridge.get_snapshot()
+            window.on_snapshot(snapshot)
+        except Exception as exc:  # noqa: BLE001
+            bridge._log_event("FAIL", f"Polling-feil: {exc}")
+        finally:
+            poll_timer.start(poll_interval_ms)
+
+    poll_timer.timeout.connect(_on_poll_tick)
+    poll_timer.start(poll_interval_ms)
 
     # Knappekort: bygg driver, ButtonWorker og koble til FocusManager
     button_driver = _build_button_driver(bridge.config.button_config, bridge)
@@ -186,6 +189,7 @@ def main() -> int:
 
     # Ryddig nedkobling når Qt lukker
     def _shutdown() -> None:
+        poll_timer.stop()
         if button_worker is not None:
             button_worker.stop()
         if button_thread is not None:
@@ -193,9 +197,6 @@ def main() -> int:
             button_thread.wait(2000)
         if button_driver is not None:
             button_driver.close()
-        worker.stop()
-        worker_thread.quit()
-        worker_thread.wait(2000)
         bridge.shutdown()
 
     app.aboutToQuit.connect(_shutdown)
