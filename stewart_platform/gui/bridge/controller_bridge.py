@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import sys
+import threading
 import time
 import traceback
 from collections import deque
@@ -128,6 +129,10 @@ class ControllerBridge(QObject):
         self._controller.initialize()
         self._controller.add_safety_listener(self._on_safety_violation)
         self._controller.add_loop_error_listener(self._on_loop_error)
+
+        # Auto-kalibrér gyro i bakgrunn så kontrollsløyfen starter med riktig bias
+        t = threading.Thread(target=self._auto_calibrate_gyro, daemon=True, name="gyro-cal")
+        t.start()
 
     def shutdown(self) -> None:
         """Rydde avslutning — stopp loop, frikoble servoer."""
@@ -373,6 +378,14 @@ class ControllerBridge(QObject):
     # Sikkerhetsvarsler fra MotionController
     # ------------------------------------------------------------------
 
+    def _auto_calibrate_gyro(self) -> None:
+        """Kalibrer gyro-bias i bakgrunn ved oppstart. Trådtrygg."""
+        result = self.calibrate_gyro()
+        if result is CalibrationResult.OK:
+            self._log_event("INFO", "Auto-kalibrering av gyro fullført ved oppstart")
+        elif result is not CalibrationResult.NOT_READY:
+            self._log_event("WARN", f"Auto-kalibrering av gyro: {result.value}")
+
     def _on_loop_error(self, exc: BaseException) -> None:
         """Mottak av uventet unntak fra kontroll-tråden.
 
@@ -394,20 +407,17 @@ class ControllerBridge(QObject):
         severity: SafetySeverity,
         violations: List[str],
     ) -> None:
-        """Mottak av sikkerhetsbrudd fra step()-løkka.
+        """Mottak av sikkerhetsbrudd fra step()-løkka (kalles fra kontroll-tråden).
 
-        Loggfører bruddene som event og emitter safety_fault-signalet
-        slik at status-banner og safety-fanen får oppdatert visning
-        umiddelbart i stedet for å vente på neste polling-tick.
+        Logger bruddene som event. safety_fault-signalet emitteres IKKE herfra
+        fordi denne metoden kjøres fra en vanlig threading.Thread, ikke fra en
+        Qt-tråd. Direkte Qt-signal-emisjon fra threading.Thread korrumperer
+        Qt's event-kø og forårsaker GUI-frysing ved hyppige violations.
+        Safety-tilstand leses i stedet via snapshot (get_snapshot) på polling-tråden.
         """
         level = "FAIL" if severity is SafetySeverity.CRITICAL else "WARN"
         for v in violations:
             self._log_event(level, f"[{severity.value.upper()}] {v}")
-        self.safety_fault.emit(SafetyCheckResult(
-            is_safe=False,
-            violations=list(violations),
-            severity=severity,
-        ))
 
     # ------------------------------------------------------------------
     # Hendelseslogg

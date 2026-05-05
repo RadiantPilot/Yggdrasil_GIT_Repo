@@ -50,6 +50,7 @@ class RealtimePlot(pg.PlotWidget):
         y_label: str = "",
         y_range: tuple[float, float] | None = None,
         show_legend: bool = True,
+        invert_x: bool = False,
     ) -> None:
         super().__init__()
         self._y_label = y_label
@@ -61,6 +62,9 @@ class RealtimePlot(pg.PlotWidget):
         self.setMouseEnabled(x=False, y=False)
         self.setMenuEnabled(False)
         self.hideButtons()
+
+        if invert_x:
+            self.getPlotItem().invertX(True)
 
         if y_range is not None:
             self.setYRange(*y_range, padding=0)
@@ -172,7 +176,8 @@ class RealtimePlot(pg.PlotWidget):
                     nb.append(float(v))
             new_buffers.append(nb)
         self._buffers = new_buffers
-        self.refresh()
+        self._dirty = True
+        self._do_refresh()
 
     @property
     def series_names(self) -> list[str]:

@@ -7,7 +7,7 @@ kalibrerings-knapper og sensorinfo.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
@@ -23,12 +23,31 @@ from ..bridge.state_snapshot import StateSnapshot
 from ..widgets.realtime_plot import RealtimePlot
 
 
+class _CalibrationThread(QThread):
+    """Kjører gyro- eller akselerometer-kalibrering uten å blokkere GUI-tråden."""
+    finished = Signal(str, object)  # (sensor-navn, CalibrationResult)
+
+    def __init__(self, bridge: ControllerBridge, cal_type: str) -> None:
+        super().__init__()
+        self._bridge = bridge
+        self._cal_type = cal_type
+
+    def run(self) -> None:
+        if self._cal_type == "gyro":
+            result = self._bridge.calibrate_gyro()
+            self.finished.emit("Gyro", result)
+        else:
+            result = self._bridge.calibrate_accelerometer()
+            self.finished.emit("Akselerometer", result)
+
+
 class ImuTab(QWidget):
     """IMU-fane med sanntidsgrafer og kalibrering."""
 
     def __init__(self, bridge: ControllerBridge) -> None:
         super().__init__()
         self._bridge = bridge
+        self._cal_thread: _CalibrationThread | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -63,11 +82,13 @@ class ImuTab(QWidget):
             self._ori_labels[name.lower()] = val
 
         # Orienterings-graf — fast Y-range matcher safety_config.max_rotation_deg
+        # invert_x=True: nyeste data vises til venstre (som et rullende vindu)
         self._ori_plot = RealtimePlot(
             series_names=["Roll", "Pitch", "Yaw"],
             window_size=120,
             y_label="°",
             y_range=(-30.0, 30.0),
+            invert_x=True,
         )
         self._ori_plot.setMinimumHeight(180)
         ori_layout = QVBoxLayout()
@@ -159,15 +180,34 @@ class ImuTab(QWidget):
         lbl.setStyleSheet(style)
         return lbl
 
+    def _start_calibration(self, cal_type: str) -> None:
+        """Start kalibrering i bakgrunnstråd — ikke-blokkerende."""
+        if self._cal_thread is not None and self._cal_thread.isRunning():
+            return
+        self._btn_gyro.setEnabled(False)
+        self._btn_accel.setEnabled(False)
+        label = "Gyro" if cal_type == "gyro" else "Akselerometer"
+        self._cal_status.setText(f"{label}-kalibrering kjører — hold plattformen stille...")
+        self._cal_status.setStyleSheet("font-size: 10px; color: #888;")
+
+        self._cal_thread = _CalibrationThread(self._bridge, cal_type)
+        self._cal_thread.finished.connect(self._on_cal_done)
+        self._cal_thread.finished.connect(self._cal_thread.deleteLater)
+        self._cal_thread.start()
+
     @Slot()
     def _on_cal_gyro(self) -> None:
-        res = self._bridge.calibrate_gyro()
-        self._show_cal_result("Gyro", res)
+        self._start_calibration("gyro")
 
     @Slot()
     def _on_cal_accel(self) -> None:
-        res = self._bridge.calibrate_accelerometer()
-        self._show_cal_result("Akselerometer", res)
+        self._start_calibration("accel")
+
+    @Slot(str, object)
+    def _on_cal_done(self, name: str, result: object) -> None:
+        self._btn_gyro.setEnabled(True)
+        self._btn_accel.setEnabled(True)
+        self._show_cal_result(name, result)
 
     def _show_cal_result(self, name: str, result: CalibrationResult) -> None:
         """Vis resultat av kalibrering med farge som matcher utfallet."""
