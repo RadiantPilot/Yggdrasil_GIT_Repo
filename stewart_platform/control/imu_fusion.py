@@ -67,8 +67,9 @@ class IMUFusion:
         # Komplementærfilter: kombiner akselerometer og gyroskop
         roll = self._alpha * gyro_roll + (1.0 - self._alpha) * accel_roll
         pitch = self._alpha * gyro_pitch + (1.0 - self._alpha) * accel_pitch
-        # Yaw kan ikke estimeres fra akselerometer alene — bruk kun gyroskop
-        yaw = gyro_yaw
+        # Yaw kan ikke estimeres uten magnetometer og driver uansett over tid.
+        # Plattformen skal kun holde seg vannrett (roll/pitch) — yaw låses til 0.
+        yaw = 0.0
 
         self._current_orientation = Vector3(roll, pitch, yaw)
         return self._current_orientation

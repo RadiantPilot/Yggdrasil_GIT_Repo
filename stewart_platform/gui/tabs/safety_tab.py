@@ -251,7 +251,7 @@ class SafetyTab(QWidget):
 
         # Hendelseslogg — synkroniser fra bridge
         events = self._bridge.get_events()
-        current_count = len(self._event_log._events)
+        current_count = len(self._event_log)
         if len(events) > current_count:
             for ev in reversed(events[current_count:]):
                 self._event_log.add_event(ev.level, ev.message)

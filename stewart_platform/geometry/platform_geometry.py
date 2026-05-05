@@ -202,4 +202,11 @@ class PlatformGeometry:
         dx = p.x - b.x
         dy = p.y - b.y
         horisontalt_sq = dx ** 2 + dy ** 2
-        return math.sqrt(self._rod_length ** 2 - horisontalt_sq)
+        radicand = self._rod_length ** 2 - horisontalt_sq
+        if radicand <= 0:
+            raise ValueError(
+                f"Geometrifeil: stag-lengde ({self._rod_length:.1f} mm) er for kort til å nå "
+                f"plattform-leddet (horisontal avstand {math.sqrt(horisontalt_sq):.1f} mm). "
+                "Sjekk rod_length, base_radius, og platform_radius i konfigurasjonen."
+            )
+        return math.sqrt(radicand)

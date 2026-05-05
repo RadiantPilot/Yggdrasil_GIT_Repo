@@ -108,6 +108,10 @@ class MotionController:
         self._stop_event = threading.Event()
         self._stop_event.set()  # Ingen tråd kjører enda
         self._thread: Optional[threading.Thread] = None
+        # Tidsstempel fra forrige step()-kall for å måle faktisk dt.
+        # None frem til første kall; resettes til None av stop() slik at
+        # første step() etter restart bruker nominell dt.
+        self._last_step_time: Optional[float] = None
 
     def initialize(self) -> None:
         """Initialiser all maskinvare og gå til hjemmeposisjon.
@@ -146,8 +150,11 @@ class MotionController:
         self._base_imu = LSM6DSOXDriver(self._bus, cfg.lsm6dsox_address)
         # Tilbakestill og konfigurer sensoren før bruk.
         # Uten configure() kjører sensoren i power-down og gir 0-er.
+        # Kalibrering av gyroskop-bias krever at plattformen er helt stille
+        # de første ~0.5 sekundene etter oppstart.
         self._base_imu.reset()
         self._base_imu.configure()
+        self._base_imu.calibrate_gyro_bias()
 
         # Geometri og kinematikk
         geometry = PlatformGeometry(cfg)
@@ -239,6 +246,7 @@ class MotionController:
         if self._thread is not None and self._thread is not threading.current_thread():
             self._thread.join(timeout=2.0)
         self._thread = None
+        self._last_step_time = None  # Neste start bruker nominell dt
 
     def emergency_stop(self, reason: str | None = None) -> None:
         """Nødstopp: stopp sløyfen og frikoble alle servoer umiddelbart.
@@ -319,7 +327,13 @@ class MotionController:
         5. Valider sikkerhet.
         6. Sett servovinkler.
         """
-        dt = 1.0 / self._loop_rate_hz
+        now = time.monotonic()
+        if self._last_step_time is not None:
+            dt = now - self._last_step_time
+            dt = max(1e-4, min(dt, 0.2))  # ignorer stall >200 ms
+        else:
+            dt = 1.0 / self._loop_rate_hz
+        self._last_step_time = now
 
         # 1-2: Les bunnplate-IMU og oppdater fusjon
         if self._base_imu is not None and self._imu_fusion is not None:

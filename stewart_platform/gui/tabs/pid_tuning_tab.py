@@ -1,9 +1,9 @@
 """
 pid_tuning_tab.py · PID-tuning og mål-orientering.
 
-Viser 3 PID-kort (Roll/Pitch/Yaw), 3 sliders for mål-orientering
-og en sanntids feilgraf. Etter at translasjon ble fjernet fra
-plattformen er dette eneste stedet brukeren kan styre mål-pose.
+Viser 2 PID-kort (Roll/Pitch), 2 sliders for mål-orientering
+og en sanntids feilgraf. Yaw er fjernet — plattformen er kun
+beregnet for å holde seg vannrett (roll + pitch).
 """
 
 from __future__ import annotations
@@ -33,10 +33,10 @@ from ..widgets.realtime_plot import RealtimePlot
 
 
 # (Akse, navn, kp_max, ki_max, kd_max, slider_min, slider_max)
+# Yaw er bevisst utelatt — plattformen holder seg vannrett via roll/pitch kun.
 _AXES = [
     (Axis.ROLL,  "Roll",  5.0, 2.0, 0.5, -20.0, 20.0),
     (Axis.PITCH, "Pitch", 5.0, 2.0, 0.5, -20.0, 20.0),
-    (Axis.YAW,   "Yaw",   3.0, 1.0, 0.3, -25.0, 25.0),
 ]
 
 
@@ -92,7 +92,7 @@ class _RotationSliders(QWidget):
             cur.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             grid.addWidget(cur, row, 3)
 
-        self._current_labels = [grid.itemAtPosition(i + 1, 3).widget() for i in range(3)]
+        self._current_labels = [grid.itemAtPosition(i + 1, 3).widget() for i in range(2)]
 
     def _on_slider(self, value: int) -> None:
         if self._updating:
@@ -116,21 +116,21 @@ class _RotationSliders(QWidget):
         rot = Vector3(
             self._spins[0].value(),
             self._spins[1].value(),
-            self._spins[2].value(),
+            0.0,  # yaw låst til 0 — ikke kontrollerbart uten magnetometer
         )
         self.rotation_changed.emit(rot)
 
     def set_target(self, rotation: Vector3) -> None:
         """Sett slider-verdier uten å emittere signal."""
         self._updating = True
-        for i, v in enumerate([rotation.x, rotation.y, rotation.z]):
+        for i, v in enumerate([rotation.x, rotation.y]):
             self._spins[i].setValue(v)
             self._sliders[i].setValue(int(v * 100))
         self._updating = False
 
     def update_current(self, rotation: Vector3) -> None:
         """Oppdater 'Nå'-kolonnen."""
-        for i, v in enumerate([rotation.x, rotation.y, rotation.z]):
+        for i, v in enumerate([rotation.x, rotation.y]):
             self._current_labels[i].setText(f"{v:+.2f}")
 
     def set_target_and_emit(self, rotation: Vector3) -> None:
@@ -141,7 +141,7 @@ class _RotationSliders(QWidget):
     def reset_to_zero(self) -> None:
         """Sett alle akser til 0."""
         self._updating = True
-        for i in range(3):
+        for i in range(2):
             self._sliders[i].setValue(0)
             self._spins[i].setValue(0.0)
         self._updating = False
@@ -162,7 +162,7 @@ class _RotationSliders(QWidget):
             self._clear_highlight()
 
     def nav_vertical(self, delta: int) -> None:
-        self._active_axis = (self._active_axis + delta) % 3
+        self._active_axis = (self._active_axis + delta) % 2
         self._highlight()
 
     def nav_horizontal(self, delta: int) -> None:
@@ -224,7 +224,6 @@ class PidTuningTab(QWidget):
             ("Null", self._preset_zero),
             ("Roll +10°", lambda: self._preset_axis(0, 10.0)),
             ("Pitch +10°", lambda: self._preset_axis(1, 10.0)),
-            ("Yaw +10°", lambda: self._preset_axis(2, 10.0)),
         ]:
             btn = QPushButton(label)
             btn.clicked.connect(callback)
@@ -249,7 +248,7 @@ class PidTuningTab(QWidget):
         # Fast Y-range matcher rotasjonsgrensene — feilen kan ikke
         # bli mye større enn ±max_rotation_deg uten å trigge safety.
         self._error_plot = RealtimePlot(
-            series_names=["Roll", "Pitch", "Yaw"],
+            series_names=["Roll", "Pitch"],
             window_size=120,
             y_label="Feil (°)",
             y_range=(-30.0, 30.0),
@@ -260,7 +259,7 @@ class PidTuningTab(QWidget):
         ctrl = QHBoxLayout()
         ctrl.addWidget(QLabel("Vis:"))
         self._axis_checks: list[QCheckBox] = []
-        for i, name in enumerate(["Roll", "Pitch", "Yaw"]):
+        for i, name in enumerate(["Roll", "Pitch"]):
             cb = QCheckBox(name)
             cb.setChecked(True)
             cb.toggled.connect(
