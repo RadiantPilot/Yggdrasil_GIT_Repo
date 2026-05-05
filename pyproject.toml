@@ -27,6 +27,9 @@ hardware = [
 dev = [
     "pytest>=7.0",
 ]
+all = [
+    "stewart-platform[gui,hardware,dev]",
+]
 
 [tool.setuptools.packages.find]
 include = ["stewart_platform*"]

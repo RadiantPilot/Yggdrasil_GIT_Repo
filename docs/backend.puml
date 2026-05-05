@@ -1,0 +1,371 @@
+@startuml backend
+skinparam classAttributeIconSize 0
+skinparam groupInheritance 2
+skinparam linetype ortho
+hide empty members
+
+title Stewart Platform – Backend-arkitektur
+
+' ─────────────────────────────────────────
+' CONFIG
+' ─────────────────────────────────────────
+package "config" #FAFAF0 {
+
+  class PlatformConfig << dataclass >> {
+    + i2c_bus_number : int
+    + pca9685_address : int
+    + pca9685_frequency : int
+    + lsm6dsox_address : int
+    + base_radius : float
+    + platform_radius : float
+    + servo_horn_length : float
+    + rod_length : float
+    + home_height : float
+    + control_loop_rate_hz : float
+    + servo_configs : List[ServoConfig]
+    + pid_gains : PIDGains
+    + safety_config : SafetyConfig
+    + button_config : ButtonConfig
+    --
+    + load(filepath) : PlatformConfig
+    + save(filepath) : None
+    + validate() : List[str]
+  }
+
+  class ServoConfig << dataclass >> {
+    + channel : int
+    + min_pulse_us : int
+    + max_pulse_us : int
+    + min_angle_deg : float
+    + max_angle_deg : float
+    + home_angle_deg : float
+    + direction : int
+    + offset_deg : float
+    + mounting_angle_deg : float
+  }
+
+  class PIDGains << dataclass >> {
+    + kp : float
+    + ki : float
+    + kd : float
+    + output_min : float
+    + output_max : float
+    + integral_limit : float
+  }
+
+  class SafetyConfig << dataclass >> {
+    + enabled : bool
+    + max_rotation_deg : float
+    + max_angular_velocity_deg_per_s : float
+    + servo_angle_margin_deg : float
+    + watchdog_timeout_s : float
+    + imu_fault_threshold_g : float
+  }
+
+  class ButtonConfig << dataclass >> {
+    + enabled : bool
+    + backend : str
+    + poll_hz : float
+    + gpio_pins : List[int]
+    + i2c_address : int
+    + nudge_steps : Dict[str, float]
+  }
+
+  enum Axis {
+    ROLL
+    PITCH
+    YAW
+  }
+
+  PlatformConfig *-- "6" ServoConfig
+  PlatformConfig *-- PIDGains
+  PlatformConfig *-- SafetyConfig
+  PlatformConfig *-- ButtonConfig
+}
+
+' ─────────────────────────────────────────
+' GEOMETRY
+' ─────────────────────────────────────────
+package "geometry" #F0F8FF {
+
+  class Vector3 {
+    + x : float
+    + y : float
+    + z : float
+    --
+    + magnitude() : float
+    + normalized() : Vector3
+    + dot(other) : float
+    + cross(other) : Vector3
+    + to_array() : ndarray
+    + from_array(arr) : Vector3
+  }
+
+  class Pose {
+    + rotation : Vector3
+    --
+    + is_within_bounds(max_deg) : bool
+    + interpolate(other, t) : Pose
+    + home() : Pose
+  }
+
+  class PlatformGeometry {
+    - _base_joints : List[Vector3]
+    - _platform_joints_local : List[Vector3]
+    --
+    + get_base_joints() : List[Vector3]
+    + get_platform_joints_world(pose) : List[Vector3]
+    + get_leg_vectors(pose) : List[Vector3]
+    + get_leg_lengths(pose) : List[float]
+  }
+
+  Pose *-- Vector3
+  PlatformGeometry ..> Pose
+  PlatformGeometry ..> Vector3
+  PlatformGeometry ..> PlatformConfig
+}
+
+' ─────────────────────────────────────────
+' HARDWARE
+' ─────────────────────────────────────────
+package "hardware" #FFF5F0 {
+
+  class I2CBus {
+    - _bus_number : int
+    - _lock : Lock
+    --
+    + read_byte_data(addr, reg) : int
+    + write_byte_data(addr, reg, val) : None
+    + read_block_data(addr, reg, len) : List[int]
+    + close() : None
+  }
+
+  class PCA9685Driver {
+    - _address : int
+    - _frequency : int
+    --
+    + set_frequency(freq_hz) : None
+    + set_pulse_width_us(channel, pulse_us) : None
+    + set_all_pwm(on, off) : None
+    + sleep() : None
+    + wake() : None
+  }
+
+  abstract class IMUInterface << ABC >> {
+    + {abstract} read_acceleration() : Vector3
+    + {abstract} read_angular_velocity() : Vector3
+    + {abstract} read_temperature() : float
+    + {abstract} configure(**kwargs) : None
+    + {abstract} reset() : None
+    + {abstract} calibrate_gyro_bias() : None
+  }
+
+  class LSM6DSOXDriver {
+    - _address : int
+    - _gyro_bias_dps : Vector3
+    - _accel_offset_ms2 : Vector3
+    --
+    + read_acceleration() : Vector3
+    + read_angular_velocity() : Vector3
+    + read_temperature() : float
+    + configure(accel_range, gyro_range, data_rate) : None
+    + calibrate_gyro_bias(num_samples) : None
+  }
+
+  abstract class ButtonInterface << ABC >> {
+    + {abstract} read() : int
+    + {abstract} close() : None
+  }
+
+  class RPiGPIOButtons {
+    + read() : int
+  }
+
+  class AttinyI2CButtons {
+    + read() : int
+  }
+
+  class MockButtons {
+    - _state : int
+    --
+    + read() : int
+    + press(index) : None
+    + release(index) : None
+  }
+
+  PCA9685Driver --> I2CBus
+  LSM6DSOXDriver --|> IMUInterface
+  LSM6DSOXDriver --> I2CBus
+  AttinyI2CButtons --|> ButtonInterface
+  AttinyI2CButtons --> I2CBus
+  RPiGPIOButtons --|> ButtonInterface
+  MockButtons --|> ButtonInterface
+}
+
+' ─────────────────────────────────────────
+' SERVO
+' ─────────────────────────────────────────
+package "servo" #F0FFF0 {
+
+  class Servo {
+    - _current_angle_deg : float
+    --
+    + set_angle(angle_deg) : None
+    + get_angle() : float
+    + is_within_limits(angle_deg) : bool
+    + go_home() : None
+    + detach() : None
+  }
+
+  class ServoArray {
+    - _servos : List[Servo]
+    --
+    + set_angles(angles) : None
+    + get_angles() : List[float]
+    + go_home() : None
+    + detach_all() : None
+    + validate_angles(angles) : bool
+  }
+
+  Servo --> ServoConfig
+  Servo --> PCA9685Driver
+  ServoArray *-- "6" Servo
+  ServoArray --> PCA9685Driver
+}
+
+' ─────────────────────────────────────────
+' KINEMATICS
+' ─────────────────────────────────────────
+package "kinematics" #FFF0FF {
+
+  class InverseKinematics {
+    - _last_valid_angles : List[float]
+    - _last_solve_clamped : bool
+    --
+    + solve(pose) : List[float]
+    + is_pose_reachable(pose) : bool
+  }
+
+  InverseKinematics --> PlatformGeometry
+  InverseKinematics --> "6" ServoConfig
+  InverseKinematics ..> Pose
+}
+
+' ─────────────────────────────────────────
+' CONTROL
+' ─────────────────────────────────────────
+package "control" #F0FFFF {
+
+  class PIDController {
+    - _integral : float
+    - _previous_error : float
+    --
+    + update(setpoint, measurement, dt) : float
+    + reset() : None
+    + set_gains(gains) : None
+  }
+
+  class PoseController {
+    - _controllers : List[PIDController]
+    --
+    + update(target, current, dt) : Pose
+    + get_pid_gains(axis) : PIDGains
+    + set_pid_gains(axis, gains) : None
+    + reset() : None
+  }
+
+  class IMUFusion {
+    - _alpha : float
+    - _current_orientation : Vector3
+    --
+    + update(accel, gyro, dt) : Vector3
+    + get_orientation() : Vector3
+    + reset() : None
+  }
+
+  PIDController --> PIDGains
+  PoseController *-- "3" PIDController
+  PoseController ..> Pose
+  PoseController ..> Axis
+  IMUFusion ..> Vector3
+}
+
+' ─────────────────────────────────────────
+' SAFETY
+' ─────────────────────────────────────────
+package "safety" #FFF0F0 {
+
+  enum SafetySeverity {
+    WARNING
+    ERROR
+    CRITICAL
+  }
+
+  class SafetyCheckResult << dataclass >> {
+    + is_safe : bool
+    + violations : List[str]
+    + severity : SafetySeverity
+  }
+
+  class SafetyMonitor {
+    - _emergency_stopped : bool
+    - _e_stop_reason : str
+    - _check_history : deque
+    --
+    + validate_pose(pose) : bool
+    + validate_servo_angles(angles) : bool
+    + validate_velocity(current, previous, dt) : bool
+    + validate_imu_readings(accel) : bool
+    + check_all(pose, angles, accel, dt) : SafetyCheckResult
+    + trigger_e_stop(reason) : None
+    + reset_latched_faults() : bool
+    + is_e_stopped() : bool
+  }
+
+  SafetyCheckResult --> SafetySeverity
+  SafetyMonitor --> SafetyConfig
+  SafetyMonitor --> "6" ServoConfig
+  SafetyMonitor ..> Pose
+  SafetyMonitor ..> Vector3
+  SafetyMonitor ..> SafetyCheckResult
+}
+
+' ─────────────────────────────────────────
+' MOTION CONTROLLER (Orchestrator)
+' ─────────────────────────────────────────
+package "control (orchestrator)" #FFFDE7 {
+
+  class MotionController {
+    - _target_pose : Pose
+    - _current_pose : Pose
+    - _lock : Lock
+    - _stop_event : Event
+    - _thread : Thread
+    --
+    + initialize() : None
+    + start() : None
+    + stop() : None
+    + emergency_stop(reason) : None
+    + step() : None
+    + set_target_pose(pose) : bool
+    + home() : None
+    + get_current_pose() : Pose
+    + get_servo_angles() : List[float]
+    + get_imu_snapshot() : Tuple[Vector3, Vector3, Vector3]
+    + add_safety_listener(cb) : None
+    + add_loop_error_listener(cb) : None
+  }
+
+  MotionController --> PlatformConfig
+  MotionController *-- ServoArray
+  MotionController *-- InverseKinematics
+  MotionController *-- PoseController
+  MotionController *-- IMUFusion
+  MotionController *-- SafetyMonitor
+  MotionController o-- IMUInterface
+  MotionController --> I2CBus
+  MotionController ..> Pose
+  MotionController ..> Vector3
+}
+
+@enduml

@@ -1,20 +1,19 @@
 # Yggdrasil - Stewart Platform
+6-DOF Stewart-plattform styrt av Raspberry Pi 4B med 6 servomotorer, en IMU-sensor og YAML-basert konfigurasjon. For å gjøre prosjektet mer gjennomførbart ble plattformens DOF redusert til 3 (roll, pitch og yaw). 
 
 ## To do list
 - [ ] Servoenes bevegelsesretning
 - [ ] Servoenes plassering
-- [ ] separat UML for front og back end
+- [x] separat UML for front og back end
 - [ ] Finn ut av FAT tabell (hva det er, og om vi trenger det)
 - [ ] Lag enkelt deployment diagram.
 - [ ] 3D design og print topp platen
 - [ ] 3D design og print armene (inkludert mellomledds bolten)
 
 
-6-DOF Stewart-plattform styrt av Raspberry Pi 4B med 6 servomotorer, en IMU-sensor og YAML-basert konfigurasjon.
-
 ## Oversikt
 
-Yggdrasil er et kontrollsystem for en Stewart-plattform (hexapod) med 6 frihetsgrader. Systemet leser orientering fra IMU-sensorer, beregner invers kinematikk og styrer 6 servomotorer via en PCA9685 PWM-driver, alt over I2C.
+Yggdrasil er et kontrollsystem for en Stewart-plattform (hexapod) med 3 frihetsgrader (roll, pitch og yaw). Systemet leser orientering fra IMU-sensorer, beregner invers kinematikk og styrer 6 servomotorer via en PCA9685 PWM-driver, alt over I2C.
 
 Plattformen er under aktiv utvikling og designet for enkel tuning og eksperimentering.
 
@@ -77,6 +76,7 @@ sa du kan installere kun det du trenger for ditt bruksomrade:
 | `gui` | `PySide6`, `pyqtgraph` | For a kjore GUI-et |
 | `hardware` | `smbus2` | For a snakke med I2C-enheter pa Raspberry Pi |
 | `dev` | `pytest` | For a kjore tester |
+| `all` | alle over | Installer alt pa en gang |
 
 ### Oppsett
 
@@ -94,7 +94,7 @@ pip install -e ".[gui,dev]"
 pip install -e ".[gui,hardware]"
 
 # Alt (hardware + GUI + tester)
-pip install -e ".[gui,hardware,dev]"
+pip install -e ".[all]"
 
 # Kun kjerne (bibliotekbruk uten GUI eller hardware)
 pip install -e .
@@ -310,7 +310,11 @@ Yggdrasil_GIT_Repo/
   config/
     default_config.yaml          Standard konfigurasjon (YAML)
   docs/
-    GUI_PLAN.md                  Detaljert GUI-implementasjonsplan
+    GUI_INFO.md                  Detaljert GUI-implementasjonsplan
+    kinematikk.md                Notater om invers kinematikk
+    terminalguide.md             Terminal-kommandoer og tips
+    backend.puml                 UML - backend
+    frontend.puml                UML - frontend
     stewart_platform_V1.puml     UML (tidlig versjon)
     stewart_platform_V2.puml     UML (mellomversjon)
     stewart_platform_V3.puml     UML-klassediagram (nyeste)

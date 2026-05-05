@@ -1,0 +1,333 @@
+@startuml frontend
+skinparam classAttributeIconSize 0
+skinparam groupInheritance 2
+skinparam linetype ortho
+hide empty members
+
+title Stewart Platform – Frontend-arkitektur (GUI)
+
+' ─────────────────────────────────────────
+' BRIDGE
+' ─────────────────────────────────────────
+package "bridge" #FAFAF0 {
+
+  class ControllerBridge << QObject >> {
+    - _controller : MotionController | None
+    - _config : PlatformConfig | None
+    - _events : deque[BridgeEvent]
+    --
+    + initialize() : None
+    + shutdown() : None
+    + get_snapshot() : StateSnapshot
+    + request_start() : None
+    + request_stop() : None
+    + request_home() : None
+    + set_target_pose(pose) : bool
+    + set_pid_gains(axis, gains) : bool
+    + trigger_e_stop(reason) : None
+    + reset_latched_faults() : bool
+    + calibrate_gyro() : CalibrationResult
+    + calibrate_accelerometer() : CalibrationResult
+    + update_config(config) : list[str]
+    + save_config() : bool
+    + update_safety_limits(cfg) : None
+    + get_events() : list[BridgeEvent]
+    ..signals..
+    + target_pose_changed : Signal(Pose)
+    + pid_gains_changed : Signal(Axis, PIDGains)
+    + safety_fault : Signal(SafetyCheckResult)
+    + config_changed : Signal(PlatformConfig)
+  }
+
+  class StateSnapshot << dataclass, frozen >> {
+    + timestamp : float
+    + loop_frequency_hz : float
+    + is_running : bool
+    + is_e_stopped : bool
+    + e_stop_reason : str | None
+    + current_pose : Pose
+    + target_pose : Pose
+    + servo_angles : list[float]
+    + imu_acceleration : Vector3
+    + imu_angular_velocity : Vector3
+    + imu_orientation : tuple[float, float, float]
+    + pid_gains : dict[Axis, PIDGains]
+    + pid_errors : dict[Axis, float]
+    + latest_safety_result : SafetyCheckResult | None
+  }
+
+  class PollingWorker << QObject >> {
+    - _bridge : ControllerBridge
+    - _rate_hz : float
+    - _stop_event : Event
+    --
+    + run() : None
+    + stop() : None
+    ..signals..
+    + snapshot_ready : Signal(StateSnapshot)
+    + error_occurred : Signal(str)
+  }
+
+  class ButtonWorker << QObject >> {
+    - _driver : ButtonInterface
+    - _debounce_s : float
+    - _long_press_s : float
+    --
+    + run() : None
+    + stop() : None
+    ..signals..
+    + button_pressed : Signal(int)
+    + button_released : Signal(int)
+    + button_long_pressed : Signal(int)
+    + error_occurred : Signal(str)
+  }
+
+  enum CalibrationResult {
+    OK
+    NOT_READY
+    NOT_IMPL
+    FAILED
+  }
+
+  ControllerBridge ..> StateSnapshot : produces
+  PollingWorker --> ControllerBridge
+  PollingWorker ..> StateSnapshot : emits
+  ControllerBridge ..> CalibrationResult
+}
+
+' ─────────────────────────────────────────
+' NAVIGATION
+' ─────────────────────────────────────────
+package "navigation" #F0FFF0 {
+
+  interface Navigable << Protocol >> {
+    + set_focused(focused : bool) : None
+    + set_edit_mode(edit : bool) : None
+    + nav_horizontal(delta : int) : None
+    + nav_vertical(delta : int) : None
+  }
+
+  class FocusManager << QObject >> {
+    - _navigables_per_tab : dict[int, list[Navigable]]
+    - _focused_index : int
+    - _edit_mode : bool
+    --
+    + register_navigables(tab_index, items) : None
+    + on_pressed(button : int) : None
+    + on_long_pressed(button : int) : None
+    - _step_tab(delta) : None
+    - _step_focus(delta) : None
+    - _toggle_edit_mode() : None
+  }
+
+  enum ButtonId {
+    LEFT  = 0
+    UP    = 1
+    CENTER = 2
+    DOWN  = 3
+    RIGHT = 4
+  }
+
+  FocusManager --> "0..*" Navigable : navigerer
+  FocusManager ..> ButtonId
+}
+
+' ─────────────────────────────────────────
+' THEME
+' ─────────────────────────────────────────
+package "utils" #F5F5FF {
+
+  class ThemeManager << QObject, singleton >> {
+    - _current : Theme
+    --
+    + instance() : ThemeManager
+    + current : Theme
+    + apply(theme : Theme) : None
+    + toggle() : Theme
+    ..signals..
+    + theme_changed : Signal(Theme)
+  }
+
+  class Theme << dataclass, frozen >> {
+    + name : str
+    + window_bg : str
+    + base_bg : str
+    + highlight : str
+    + plot_bg : str
+    + plot_fg : str
+    ' … (colour tokens)
+  }
+
+  note right of Theme
+    Konstanter:
+    LIGHT, DARK
+  end note
+
+  ThemeManager --> Theme
+}
+
+' ─────────────────────────────────────────
+' WIDGETS
+' ─────────────────────────────────────────
+package "widgets" #FFF0F5 {
+
+  class StatusBanner << QWidget >> {
+    - _icon : QLabel
+    - _title : QLabel
+    - _subtitle : QLabel
+    --
+    + set_status(status, title, subtitle) : None
+  }
+
+  class ServoBars << QWidget >> {
+    - _bars : list[QProgressBar]
+    - _labels : list[QLabel]
+    - _min, _max : float
+    --
+    + update_angles(angles : list[float]) : None
+  }
+
+  class EventLog << QWidget >> {
+    - _events : deque[Event]
+    --
+    + add_event(level, message) : None
+  }
+
+  class PidCard << QWidget >> {
+    - _axis_name : str
+    - _sliders : list[QSlider]
+    - _spins : list[QDoubleSpinBox]
+    - _error_label : QLabel
+    --
+    + set_gains(gains : PIDGains) : None
+    + get_gains() : PIDGains
+    + set_error(err : float) : None
+    + set_focused(focused) : None
+    + set_edit_mode(edit) : None
+    + nav_horizontal(delta) : None
+    + nav_vertical(delta) : None
+    ..signals..
+    + gains_changed : Signal(PIDGains)
+  }
+
+  class IndicatorLamp << QWidget >> {
+    - _dot : _LedDot
+    - _label : QLabel
+    --
+    + set_state(on, color) : None
+    + set_label(text) : None
+  }
+
+  class RealtimePlot << pg.PlotWidget >> {
+    - _buffers : list[RingBuffer]
+    - _curves : list[PlotDataItem]
+    - _visible : list[bool]
+    - _render_timer : QTimer
+    --
+    + append_values(values : list[float]) : None
+    + set_series_visible(index, visible) : None
+    + set_window_size(size) : None
+    + clear_data() : None
+  }
+
+  PidCard ..|> Navigable
+}
+
+' ─────────────────────────────────────────
+' TABS
+' ─────────────────────────────────────────
+package "tabs" #F0F8FF {
+
+  class OverviewTab << QWidget >> {
+    - _banner : StatusBanner
+    - _servo_bars : ServoBars
+    - _event_log : EventLog
+    --
+    + update_from_snapshot(snapshot) : None
+  }
+
+  class PidTuningTab << QWidget >> {
+    - _cards : dict[Axis, PidCard]
+    - _sliders : _RotationSliders
+    - _error_plot : RealtimePlot
+    --
+    + update_from_snapshot(snapshot) : None
+    + get_navigables() : list[Navigable]
+  }
+
+  class ImuTab << QWidget >> {
+    - _ori_plot : RealtimePlot
+    - _raw_labels : dict[str, QLabel]
+    --
+    + update_from_snapshot(snapshot) : None
+  }
+
+  class ConfigTab << QWidget >> {
+    - _geo_spins : dict[str, QDoubleSpinBox]
+    - _servo_table : QTableWidget
+    --
+    + update_from_snapshot(snapshot) : None
+    - _build_config_from_ui() : PlatformConfig
+  }
+
+  class SafetyTab << QWidget >> {
+    - _check_lamps : dict[str, IndicatorLamp]
+    - _event_log : EventLog
+    - _limit_spins : dict[str, QDoubleSpinBox]
+    --
+    + update_from_snapshot(snapshot) : None
+  }
+
+  OverviewTab *-- StatusBanner
+  OverviewTab *-- ServoBars
+  OverviewTab *-- EventLog
+
+  PidTuningTab *-- "3" PidCard
+  PidTuningTab *-- RealtimePlot
+
+  ImuTab *-- RealtimePlot
+
+  SafetyTab *-- "6" IndicatorLamp
+  SafetyTab *-- EventLog
+}
+
+' ─────────────────────────────────────────
+' MAIN WINDOW
+' ─────────────────────────────────────────
+package "main" #FFFDE7 {
+
+  class MainWindow << QMainWindow >> {
+    - _bridge : ControllerBridge
+    - _focus_manager : FocusManager
+    - _tab_overview : OverviewTab
+    - _tab_pid : PidTuningTab
+    - _tab_imu : ImuTab
+    - _tab_config : ConfigTab
+    - _tab_safety : SafetyTab
+    - _polling_worker : PollingWorker
+    - _button_worker : ButtonWorker
+    --
+    + on_snapshot(snapshot : StateSnapshot) : None
+    - _on_start_clicked() : None
+    - _on_stop_clicked() : None
+    - _on_home_clicked() : None
+    - _on_estop_clicked() : None
+    - _on_tab_changed(index) : None
+    - _on_theme_toggle() : None
+  }
+
+  MainWindow *-- ControllerBridge
+  MainWindow *-- FocusManager
+  MainWindow *-- OverviewTab
+  MainWindow *-- PidTuningTab
+  MainWindow *-- ImuTab
+  MainWindow *-- ConfigTab
+  MainWindow *-- SafetyTab
+  MainWindow *-- PollingWorker
+  MainWindow o-- ButtonWorker
+
+  ControllerBridge ..> MotionController : wraps (backend)
+  ButtonWorker ..> ButtonInterface : leser (backend)
+}
+
+@enduml
