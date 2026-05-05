@@ -1,5 +1,15 @@
 # Yggdrasil - Stewart Platform
 
+## To do list
+- [ ] Servoenes bevegelsesretning
+- [ ] Servoenes plassering
+- [ ] separat UML for front og back end
+- [ ] Finn ut av FAT tabell (hva det er, og om vi trenger det)
+- [ ] Lag enkelt deployment diagram.
+- [ ] 3D design og print topp platen
+- [ ] 3D design og print armene (inkludert mellomledds bolten)
+
+
 6-DOF Stewart-plattform styrt av Raspberry Pi 4B med 6 servomotorer, en IMU-sensor og YAML-basert konfigurasjon.
 
 ## Oversikt
