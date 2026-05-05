@@ -55,8 +55,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rate",
         type=float,
-        default=8.0,
-        help="Oppdateringsfrekvens for GUI-polling i Hz (default 8).",
+        default=4.0,
+        help="Oppdateringsfrekvens for GUI-polling i Hz (default 4).",
     )
     parser.add_argument(
         "--theme",
@@ -141,11 +141,11 @@ def main() -> int:
 
     # Polling via enkel QTimer i GUI-tråden — ingen separat tråd, ingen
     # cross-thread signal-kø. get_snapshot() leser kun cachet data og er
-    # trygt å kalle fra GUI-tråden. Single-shot-mønster sørger for at
-    # neste tick bare planlegges etter forrige er ferdig.
-    poll_interval_ms = max(50, int(1000 / args.rate))
+    # trygt å kalle fra GUI-tråden. Lav rate (4 Hz) gir GUI-tråden god
+    # tid mellom hvert snapshot og hindrer at event-køen overbelastes.
+    poll_interval_ms = max(100, int(1000 / args.rate))
     poll_timer = QTimer()
-    poll_timer.setSingleShot(True)
+    poll_timer.setInterval(poll_interval_ms)
 
     def _on_poll_tick() -> None:
         try:
@@ -153,11 +153,9 @@ def main() -> int:
             window.on_snapshot(snapshot)
         except Exception as exc:  # noqa: BLE001
             bridge._log_event("FAIL", f"Polling-feil: {exc}")
-        finally:
-            poll_timer.start(poll_interval_ms)
 
     poll_timer.timeout.connect(_on_poll_tick)
-    poll_timer.start(poll_interval_ms)
+    poll_timer.start()
 
     # Knappekort: bygg driver, ButtonWorker og koble til FocusManager
     button_driver = _build_button_driver(bridge.config.button_config, bridge)

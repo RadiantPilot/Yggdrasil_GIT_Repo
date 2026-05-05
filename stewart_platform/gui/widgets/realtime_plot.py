@@ -21,7 +21,7 @@ from ..utils.theme import Theme, ThemeManager
 
 # Maksimal tegnerate. 5 Hz holder grafen flytende for mennesker
 # uten å overbelaste GUI-tråden på Pi 4B.
-_RENDER_HZ = 5
+_RENDER_HZ = 2
 _RENDER_INTERVAL_MS = int(1000 / _RENDER_HZ)
 
 # Hvor ofte vi kjører manuell autorange når y_range ikke er gitt.
@@ -94,14 +94,9 @@ class RealtimePlot(pg.PlotWidget):
         self._apply_theme(mgr.current)
         mgr.theme_changed.connect(self._apply_theme)
 
-        # Single-shot timer: neste render planlegges ETTER forrige er ferdig.
-        # Dette hindrer at event-køen fylles opp når rendering er treg (Pi 4B).
-        # Et repeating-timer ville fyrt uavhengig av renderingstid og skapt
-        # opphoping som til slutt fryser GUI-tråden.
         self._dirty = False
         self._render_tick = 0
         self._render_timer = QTimer(self)
-        self._render_timer.setSingleShot(True)
         self._render_timer.setInterval(_RENDER_INTERVAL_MS)
         self._render_timer.timeout.connect(self._do_refresh)
         self._render_timer.start()
@@ -128,39 +123,33 @@ class RealtimePlot(pg.PlotWidget):
         self._dirty = True
 
     def _do_refresh(self) -> None:
-        """Tegn kurvene hvis det er nye data og widgeten er synlig.
-        Planlegger neste render ETTER seg selv (single-shot-mønster) slik at
-        event-køen ikke kan bygge seg opp når rendering er treg på Pi 4B.
-        """
-        try:
-            if not self._dirty or not self.isVisible():
-                return
-            self._dirty = False
-            self._render_tick += 1
+        """Tegn kurvene hvis det er nye data og widgeten er synlig."""
+        if not self._dirty or not self.isVisible():
+            return
+        self._dirty = False
+        self._render_tick += 1
 
-            ymin = float("inf")
-            ymax = float("-inf")
-            do_autorange = self._y_range is None and (self._render_tick % _AUTORANGE_EVERY_N == 0)
+        ymin = float("inf")
+        ymax = float("-inf")
+        do_autorange = self._y_range is None and (self._render_tick % _AUTORANGE_EVERY_N == 0)
 
-            for i, (buf, curve) in enumerate(zip(self._buffers, self._curves)):
-                if not self._visible[i]:
-                    curve.setData([])
-                    continue
-                data = buf.get_channel(0)
-                if len(data) == 0:
-                    continue
-                # setData uten x-array er raskere — pyqtgraph genererer
-                # implisitt arange. skipFiniteCheck dropper en valider-loop.
-                curve.setData(data, skipFiniteCheck=True)
-                if do_autorange:
-                    ymin = min(ymin, float(np.min(data)))
-                    ymax = max(ymax, float(np.max(data)))
+        for i, (buf, curve) in enumerate(zip(self._buffers, self._curves)):
+            if not self._visible[i]:
+                curve.setData([])
+                continue
+            data = buf.get_channel(0)
+            if len(data) == 0:
+                continue
+            # setData uten x-array er raskere — pyqtgraph genererer
+            # implisitt arange. skipFiniteCheck dropper en valider-loop.
+            curve.setData(data, skipFiniteCheck=True)
+            if do_autorange:
+                ymin = min(ymin, float(np.min(data)))
+                ymax = max(ymax, float(np.max(data)))
 
-            if do_autorange and ymin < ymax:
-                margin = (ymax - ymin) * 0.1 or 0.5
-                self.setYRange(ymin - margin, ymax + margin, padding=0)
-        finally:
-            self._render_timer.start()
+        if do_autorange and ymin < ymax:
+            margin = (ymax - ymin) * 0.1 or 0.5
+            self.setYRange(ymin - margin, ymax + margin, padding=0)
 
     def clear_data(self) -> None:
         """Tøm all data."""
@@ -186,7 +175,6 @@ class RealtimePlot(pg.PlotWidget):
             new_buffers.append(nb)
         self._buffers = new_buffers
         self._dirty = True
-        self._do_refresh()
 
     @property
     def series_names(self) -> list[str]:
