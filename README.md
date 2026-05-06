@@ -55,6 +55,12 @@ python -m stewart_platform.gui --rate 60                    # Polling-frekvens f
 GUI-et har 5 faner: Oversikt, PID-tuning, IMU, Konfigurasjon og Sikkerhet.
 Full GUI-referanse (alle faner, argumenter, tastatur, knappekort): se [docs/GUI_INFO.md](docs/GUI_INFO.md)
 
+
+Husk å sette Pin 18 lav, for å skru av OE pinnen til PWM kortet.
+```bash
+pinctrl set 18 op dl
+```
+
 ---
 
 ## Testing
