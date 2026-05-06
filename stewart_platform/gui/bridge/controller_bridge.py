@@ -286,14 +286,22 @@ class ControllerBridge(QObject):
     # Kommandoer fra GUI
     # ------------------------------------------------------------------
 
-    def request_start(self) -> None:
+    def request_start(self) -> bool:
         if self._mock:
+            if self._mock_e_stopped:
+                self._log_event("WARN", "Start blokkert — E-STOP er aktiv. Tilbakestill først.")
+                return False
             self._mock_running = True
             self._log_event("INFO", "Kontrollsløyfe startet")
-            return
+            return True
         if self._controller is not None:
+            safety = self._controller.safety_monitor
+            if safety is not None and safety.is_e_stopped():
+                self._log_event("WARN", "Start blokkert — E-STOP er aktiv. Tilbakestill først.")
+                return False
             self._controller.start()
             self._log_event("INFO", "Kontrollsløyfe startet")
+        return True
 
     def request_stop(self) -> None:
         if self._mock:
@@ -517,31 +525,50 @@ class ControllerBridge(QObject):
     # IMU-kalibrering
     # ------------------------------------------------------------------
 
-    def calibrate_gyro(self) -> CalibrationResult:
-        """Start gyro-kalibrering.
+    def calibrate_gyro(self) -> tuple[CalibrationResult, bool]:
+        """Start gyro-kalibrering med kontrollert stopp/reset/restart-sekvens.
 
-        Returnerer en CalibrationResult slik at GUI kan skille mellom
-        "fullført", "ingen IMU", "ikke implementert i driveren" og
-        "driveren feilet".
+        Stopper kontrollsløyfen hvis den kjører, kjører kalibrering, resetter
+        IMU-fusjon og PID, og returnerer (resultat, was_running) slik at GUI
+        kan tilby omstart.
+
+        Returns:
+            Tuple (CalibrationResult, was_running) der was_running indikerer
+            om sløyfen var aktiv da kalibrering ble startet.
         """
         if self._mock:
             self._log_event("INFO", "Gyro-kalibrering fullført (mock)")
-            return CalibrationResult.OK
+            return CalibrationResult.OK, False
         if self._controller is None:
-            return CalibrationResult.NOT_READY
+            return CalibrationResult.NOT_READY, False
         imu = self._controller.base_imu
         if imu is None:
-            return CalibrationResult.NOT_READY
+            return CalibrationResult.NOT_READY, False
+
+        was_running = self._controller.is_running()
+        if was_running:
+            self._controller.stop()
+
         try:
             imu.calibrate_gyro_bias()
         except NotImplementedError:
             self._log_event("WARN", "Gyro-kalibrering er ikke implementert i driveren")
-            return CalibrationResult.NOT_IMPL
+            return CalibrationResult.NOT_IMPL, was_running
         except Exception as exc:  # noqa: BLE001 — bredt ment
             self._log_event("FAIL", f"Gyro-kalibrering feilet: {exc}")
-            return CalibrationResult.FAILED
+            return CalibrationResult.FAILED, was_running
+
+        # Reset IMU-fusjon og PID etter ny bias, og sett target = current
+        # for bumpless overgang ved eventuell omstart.
+        if self._controller.imu_fusion is not None:
+            self._controller.imu_fusion.reset()
+        if self._controller.pose_controller is not None:
+            self._controller.pose_controller.reset()
+        current = self._controller.get_current_pose()
+        self._controller.set_target_pose(current)
+
         self._log_event("INFO", "Gyro-kalibrering fullført")
-        return CalibrationResult.OK
+        return CalibrationResult.OK, was_running
 
     def calibrate_accelerometer(self) -> CalibrationResult:
         """Start akselerometer-kalibrering. Se calibrate_gyro() for retur."""

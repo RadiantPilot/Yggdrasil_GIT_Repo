@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -25,7 +26,7 @@ from ..widgets.realtime_plot import RealtimePlot
 
 class _CalibrationThread(QThread):
     """Kjører gyro- eller akselerometer-kalibrering uten å blokkere GUI-tråden."""
-    finished = Signal(str, object)  # (sensor-navn, CalibrationResult)
+    finished = Signal(str, object, bool)  # (sensor-navn, CalibrationResult, was_running)
 
     def __init__(self, bridge: ControllerBridge, cal_type: str) -> None:
         super().__init__()
@@ -34,11 +35,11 @@ class _CalibrationThread(QThread):
 
     def run(self) -> None:
         if self._cal_type == "gyro":
-            result = self._bridge.calibrate_gyro()
-            self.finished.emit("Gyro", result)
+            result, was_running = self._bridge.calibrate_gyro()
+            self.finished.emit("Gyro", result, was_running)
         else:
             result = self._bridge.calibrate_accelerometer()
-            self.finished.emit("Akselerometer", result)
+            self.finished.emit("Akselerometer", result, False)
 
 
 class ImuTab(QWidget):
@@ -203,11 +204,19 @@ class ImuTab(QWidget):
     def _on_cal_accel(self) -> None:
         self._start_calibration("accel")
 
-    @Slot(str, object)
-    def _on_cal_done(self, name: str, result: object) -> None:
+    @Slot(str, object, bool)
+    def _on_cal_done(self, name: str, result: object, was_running: bool) -> None:
         self._btn_gyro.setEnabled(True)
         self._btn_accel.setEnabled(True)
         self._show_cal_result(name, result)
+        if result is CalibrationResult.OK and was_running:
+            ans = QMessageBox.question(
+                self,
+                "Start sløyfen igjen?",
+                f"{name}-kalibrering fullført. Sløyfen ble stoppet.\n\nVil du starte kontrollsløyfen igjen?",
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._bridge.request_start()
 
     def _show_cal_result(self, name: str, result: CalibrationResult) -> None:
         """Vis resultat av kalibrering med farge som matcher utfallet."""

@@ -127,6 +127,9 @@ class SafetyTab(QWidget):
             spin.setSingleStep(step)
             spin.setDecimals(1)
             spin.setFixedWidth(90)
+            if key == "watchdog_timeout_s":
+                spin.setEnabled(False)
+                spin.setToolTip("Ikke implementert — reservert for fremtidig bruk")
             lg.addWidget(spin, i, 1)
             self._limit_spins[key] = spin
 

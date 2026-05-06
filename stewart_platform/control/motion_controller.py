@@ -204,12 +204,13 @@ class MotionController:
     def home(self) -> None:
         """Flytt plattformen til hjemmeposisjon.
 
-        Resetter mål-pose til home og delegerer til
-        ServoArray.go_home() for å flytte servoene.
+        Setter mål-pose til home. Hvis kontrollsløyfen kjører, tar
+        den seg av ramping via set_angles_slewed(). Hvis ikke, sendes
+        direktekommando til servoene.
         """
         with self._lock:
             self._target_pose = Pose.home()
-        if self._servo_array is not None:
+        if self._servo_array is not None and not self.is_running():
             self._servo_array.go_home()
 
     def start(self) -> None:
@@ -228,6 +229,8 @@ class MotionController:
             raise RuntimeError(
                 "Kontrolleren er ikke initialisert. Kall initialize() først."
             )
+        if self._safety_monitor is not None and self._safety_monitor.is_e_stopped():
+            return
         if self._thread is not None and self._thread.is_alive():
             return
         # Hjem-sekvens: gå til hjemposisjon og nullstill referanser

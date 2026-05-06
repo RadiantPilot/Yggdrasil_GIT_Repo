@@ -249,8 +249,11 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_start_clicked(self) -> None:
-        self._bridge.request_start()
-        self.statusBar().showMessage("Start-kommando sendt.", 3000)
+        ok = self._bridge.request_start()
+        if ok:
+            self.statusBar().showMessage("Start-kommando sendt.", 3000)
+        else:
+            self.statusBar().showMessage("Start blokkert — tilbakestill E-STOP først.", 5000)
 
     @Slot()
     def _on_stop_clicked(self) -> None:
