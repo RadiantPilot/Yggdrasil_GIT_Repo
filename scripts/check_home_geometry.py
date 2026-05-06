@@ -31,7 +31,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("config/default_config.yaml"),
+        default=Path(__file__).parent.parent / "config" / "default_config.yaml",
         help="Sti til YAML-konfigurasjonsfil.",
     )
     return parser.parse_args()

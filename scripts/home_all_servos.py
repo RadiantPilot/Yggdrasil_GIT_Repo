@@ -27,7 +27,7 @@ from stewart_platform.hardware.i2c_bus import I2CBus
 from stewart_platform.hardware.pca9685_driver import PCA9685Driver
 from stewart_platform.servo.servo_array import ServoArray
 
-DEFAULT_CONFIG_PATH = "config/default_config.yaml"
+DEFAULT_CONFIG_PATH = str(Path(__file__).parent.parent / "config" / "default_config.yaml")
 DEFAULT_WIGGLE_DEG = 15.0
 DEFAULT_HOLD_S = 0.3
 DEFAULT_SETTLE_S = 0.4
