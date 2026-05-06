@@ -73,6 +73,10 @@ class Servo:
         max_angle_deg) til pulsbreddeområdet (min_pulse_us til
         max_pulse_us). Tar hensyn til retning og offset.
 
+        direction=+1: min_angle → min_pulse, max_angle → max_pulse
+        direction=-1: min_angle → max_pulse, max_angle → min_pulse
+        offset_deg forskyver nullpunktet (positiv = høyere puls).
+
         Args:
             angle_deg: Vinkel i grader.
 
@@ -80,13 +84,17 @@ class Servo:
             Pulsbredde i mikrosekunder.
         """
         cfg = self._config
-        # Anvend retning og offset
-        effective = cfg.direction * angle_deg + cfg.offset_deg
-
-        # Lineær mapping fra vinkelområde til pulsbredde
         angle_range = cfg.max_angle_deg - cfg.min_angle_deg
         pulse_range = cfg.max_pulse_us - cfg.min_pulse_us
-        ratio = (effective - cfg.min_angle_deg) / angle_range
+
+        # Normaliser vinkelen til [0, 1] og inverter ved direction=-1
+        ratio = (angle_deg - cfg.min_angle_deg) / angle_range
+        if cfg.direction < 0:
+            ratio = 1.0 - ratio
+
+        # Kalibreringsoffset i grader konverteres til ratio-rom
+        ratio += cfg.offset_deg / angle_range
+
         return int(round(cfg.min_pulse_us + ratio * pulse_range))
 
     def is_within_limits(self, angle_deg: float) -> bool:
