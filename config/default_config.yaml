@@ -59,7 +59,7 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: -1
+    direction: 1
     offset_deg: 0.0
     mounting_angle_deg: 60.0
     max_slew_rate_deg_per_s: 120.0
@@ -81,7 +81,7 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: -1
+    direction: 1
     offset_deg: 0.0
     mounting_angle_deg: 300.0
     max_slew_rate_deg_per_s: 120.0
@@ -103,7 +103,7 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: -1
+    direction: 1
     offset_deg: 0.0
     mounting_angle_deg: 180.0
     max_slew_rate_deg_per_s: 120.0
