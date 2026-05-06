@@ -291,9 +291,6 @@ class SafetyMonitor:
         else:
             severity = SafetySeverity.WARNING
 
-        if severity == SafetySeverity.CRITICAL:
-            self.trigger_e_stop("Kritisk sikkerhetsbrudd")
-
         result = SafetyCheckResult(
             is_safe=False,
             violations=violations,

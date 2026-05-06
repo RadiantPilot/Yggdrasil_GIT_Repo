@@ -431,8 +431,7 @@ class MotionController:
                     self._last_safety_violations = violations_now
                 self._previous_safety_safe = False
                 if result.severity is SafetySeverity.CRITICAL:
-                    self.emergency_stop()
-                    return
+                    return  # Hold posisjon — servoer forblir tent på siste gyldige pose
                 if result.severity is SafetySeverity.ERROR:
                     return
                 # WARNING: la kommandoen gå gjennom, lytteren har fått varselet.
