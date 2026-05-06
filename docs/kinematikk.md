@@ -1,105 +1,169 @@
-# Kinematikk og styring av Stewart-plattformen
+# Kinematikk — hvordan vet RPi hvilke vinkler servoane skal ha?
 
-Dette dokumentet beskriver det matematiske grunnlaget for hvordan plattformen beregner servovinkler fra en ønsket orientering.
-
----
-
-## 1. Plattformens oppbygging
-
-En Stewart-plattform består av to plater forbundet med seks bein. Bunnplaten er fast, mens toppplaten kan beveges ved å endre lengden på hvert bein.
-
-I denne implementasjonen er beinlengden ikke direkte justerbar. I stedet har hvert bein et servohorn som kobler til bunnplaten, og et forbindelsesstag som kobler hornets ytterpunkt til et ledd på toppplaten. Når servoen roterer, endres hornspissens posisjon, og staget presser eller trekker toppplaten i ønsket retning.
-
-Plattformen styres kun rotasjonelt. Toppplaten holdes på en fast hvilehøyde og kan vippes rundt sentrum.
+Her er en gjennomgang av hvordan styresystemet regner seg frem til riktige servovinkler ut fra en ønsket helning på toppplaten.
 
 ---
 
-## 2. Koordinatsystem og geometri
+## Hva er en Stewart Platform?
 
-Alle koordinater er i millimeter. Origo er midt på bunnplaten.
+Plattformen har to plater — en fast bunnplate og en bevegelig toppplate — koblet sammen med seks bein. Hvert bein har en servo som roterer en kort arm, og armspissen er koblet til toppplaten via et stag. Når servoen roterer, skyver eller trekker den toppplaten på sin side, og de seks servoane i fellesskap bestemmer hvilken helning toppplaten har.
 
-**Bunnplaten** har seks leddpunkter plassert på en sirkel med radius $r_b$, jevnt fordelt med 60 graders mellomrom:
+Vår plattform bruker **kun rotasjon** — toppplaten holder seg alltid 120 mm over bunnplaten og vippes rundt midtpunktet.
 
-> Fiks tallene (De stemmer ikke med plattformen)
-$$B_i = \bigl(r_b \cos\theta_i,\ r_b \sin\theta_i,\ 0\bigr), \quad \theta_i \in \{0°, 60°, 120°, 180°, 240°, 300°\}$$
+Spørsmålet systemet må svare på til enhver tid:
 
-**Toppplaten** har tilsvarende seks leddpunkter på en sirkel med radius $r_p$, forskjøvet med 30 grader relativt til bunnplatens vinkler:
-
-$$P_i^{\text{lok}} = \bigl(r_p \cos\phi_i,\ r_p \sin\phi_i,\ 0\bigr), \quad \phi_i \in \{30°, 90°, 150°, 210°, 270°, 330°\}$$
-
-I standardkonfigurasjon er $r_b = 100$ mm, $r_p = 75$ mm, $a = 25$ mm, $s = 150$ mm og $h = 120$ mm.
+> *Vi vil ha toppplaten i vinkel (roll, pitch, yaw) — hvilken vinkel skal hvert servo ha?*
 
 ---
 
-## 3. Fra ønsket orientering til verdenskoordinater
+## To typer kinematikk
 
-Toppplatens orientering beskrives med tre Euler-vinkler: roll ($\alpha$), pitch ($\beta$) og yaw ($\gamma$), alle i grader. Disse definerer en rotasjonsmatrise $R$ etter ZYX-konvensjonen:
+**Fremover-kinematikk**: gitt servovinklene → hva er stillingen til toppplaten?
 
-$$R = R_z(\gamma) \cdot R_y(\beta) \cdot R_x(\alpha)$$
+**Invers kinematikk (IK)**: gitt ønsket stilling → hva skal servovinklene være?
 
-For å finne toppplatens leddpunkter i verdenskoordinater roteres de lokale posisjonene og legges til en fast translasjon langs z-aksen:
-
-$$P_i^{\text{verden}} = R \cdot P_i^{\text{lok}} + \begin{pmatrix} 0 \\ 0 \\ h \end{pmatrix}$$
+Vi bruker **invers kinematikk**. Vi vet hva vi vil, og regner bakover til vinklene som gir akkurat det.
 
 ---
 
-## 4. Invers kinematikk: fra beinvektor til servovinkel
+## Geometrien — hva systemet vet på forhånd
 
-Beinvektoren for bein $i$ er forskjellen mellom toppplatens og bunnplatens ledd i verdenskoordinater:
+Systemet kjenner plattformens mål som faste tall:
 
-$$\vec{L}_i = P_i^{\text{verden}} - B_i$$
+**Bunnplaten** (beveger seg aldri):
+- 6 festepunkter på en sirkel med radius 100 mm
+- Jevnt fordelt med 60° mellomrom: 0°, 60°, 120°, 180°, 240°, 300°
 
-Målet er å finne servovinkelen $\alpha_i$ slik at hornspissens avstand til toppplateddet blir lik staglengden $s$.
+**Toppplaten**:
+- 6 festepunkter på en sirkel med radius 75 mm
+- Samme fordeling, men 30° forskjøvet fra bunnplaten: 30°, 90°, 150°, 210°, 270°, 330°
 
-### 4.1 Dekomponering i servoplanet
+**Hvert bein**:
+- Servoarm: **a = 25 mm** — roteres av servoen
+- Stag: **s = 150 mm** — kobler armspissen til toppplaten
 
-Servohornet roterer i et vertikalt plan definert av monteringsvinkelen $m_i$. Beinvektoren deles opp i to retninger:
-
-$$L_r = L_x \cos m_i + L_y \sin m_i \qquad \text{(horisontal i servoplanet)}$$
-$$L_z \qquad \text{(vertikal)}$$
-
-### 4.2 Geometrisk krav
-
-Hornspissens posisjon relativt til bunnleddet er:
-
-$$\text{hornspiss} = \bigl(a\sin\alpha \cos m_i,\ a\sin\alpha \sin m_i,\ {-a\cos\alpha}\bigr)$$
-
-Kravet om at staget skal nå toppplateddet gir $|\text{hornspiss} - \vec{L}_i|^2 = s^2$, som etter utregning forenkles til:
-
-$$L_r \sin\alpha - L_z \cos\alpha = M, \qquad M = \frac{d^2 + a^2 - s^2}{2a}$$
-
-### 4.3 Løsning
-
-Venstresiden skrives om ved hjelp av en hjelpevinkel:
-
-$$R = \sqrt{L_r^2 + L_z^2}, \qquad \delta = \arctan\!\Bigl(\frac{L_z}{L_r}\Bigr)$$
-
-Dette gir $R \sin(\alpha - \delta) = M$, og dermed:
-
-$$\alpha = \delta + \arcsin\!\Bigl(\frac{M}{R}\Bigr)$$
-
-Hvis $|M/R| > 1$ er den ønskede posen utenfor det fysisk mulige. I så fall fryses servoene på siste gyldige vinkel, og plattformen beveger seg ikke videre i den retningen.
+```
+     Toppplate
+    o---[stag]---o
+   /               \
+[arm]             [arm]
+  |                 |
+[servo]          [servo]
+       Bunnplate
+```
 
 ---
 
-## 5. Grenser og sikkerhet
+## Fra ønsket helning til servovinkler — fire steg
 
-Når servovinkelen er beregnet, begrenses den til det mekaniske arbeidsområdet $[\alpha_{\min},\ \alpha_{\max}]$. I tillegg kontrollerer systemet at:
+### Steg 1: Roter toppplatens festepunkter
 
-- Rotasjonen ikke overstiger 30 grader fra nøytralt
-- Vinkelhastigheten ikke overstiger 60 grader per sekund
-- IMU-akselerometeret ikke registrerer verdier over 4 g
+Ønsket stilling oppgis som tre vinkler:
+- **Roll** — vipping til siden (som å helle et glass)
+- **Pitch** — vipping forover/bakover
+- **Yaw** — rotasjon rundt opp-aksen
+
+Disse tre slås sammen til én rotasjonsmatrise `R` (yaw → pitch → roll):
+
+```
+R = Rz(yaw) · Ry(pitch) · Rx(roll)
+```
+
+`R` brukes på hvert av toppplatens 6 festepunkter, som deretter løftes opp til hvilehøyden:
+
+```
+P_verden[i] = R · P_lokal[i] + [0, 0, 120]
+```
+
+Nå vet vi nøyaktig hvor hvert festepunkt på toppplaten er i rommet, gitt den ønskede helningen.
+
+### Steg 2: Beregn beinvektorene
+
+For hvert av de 6 beinene: trekk fra bunnfestepunktet:
+
+```
+L[i] = P_verden[i] - B[i]
+```
+
+`L[i]` er en 3D-vektor som sier "i denne retningen og denne lengden må beinet strekke seg". Det er disse vektorene som sendes videre til selve kinematikk-beregningen.
+
+### Steg 3: Finn servovinkel fra beinvektor
+
+Dette er kjernen. For hvert bein gjøres tre delsteg:
+
+**3a. Projisér inn i servoens plan**
+
+Hvert servo roterer i ett bestemt vertikalt plan, gitt av servomontasjevinkelen `m`. Vi trenger bare beinvektorens bidrag i dette planet:
+
+```
+L_r = L_x · cos(m) + L_y · sin(m)    ← horisontal retning i servoplanet
+L_z = L_z                             ← vertikal (uendret)
+```
+
+**3b. Sett opp geometriligningen**
+
+Servoarmen peker ut fra aksen i vinkel `α` (0° = rett ned, 90° = horisontal, 180° = rett opp). For at staget (150 mm) akkurat skal nå toppfestepunktet, må denne ligningen stemme:
+
+```
+L_r · sin(α) − L_z · cos(α) = M
+
+der M = (d² + a² − s²) / (2a)
+    d = total lengde på beinvektoren
+    a = servoarmlengde (25 mm)
+    s = staglengde (150 mm)
+```
+
+**3c. Løs for `α`**
+
+Venstresiden kan skrives om ved å bruke en hjelpevinkel `δ`:
+
+```
+R = √(L_r² + L_z²)
+δ = atan2(L_z, L_r)
+
+→  R · sin(α − δ) = M
+
+→  α = δ + arcsin(M / R)
+```
+
+`α` er servovinkelen. Den klipper vi til servoens mekaniske grenser (`min_angle_deg`…`max_angle_deg`) og sender videre.
+
+### Steg 4: Hva skjer når stillingen er umulig?
+
+Hvis `|M / R| > 1` finnes det ingen gyldig vinkel — toppplaten er bedt om en helning som er for ekstrem for beinet å håndtere.
+
+I stedet for å krasje gjør systemet dette:
+1. Merker hvilke servoer som ikke kan løses (`last_clamped_mask`)
+2. Returnerer de **siste gyldige servovinklene** (`_last_valid_angles`)
+3. Servoene blir stående — plattformen beveger seg ikke videre
+
+GUI og kontroller kan lese `last_solve_clamped` for å se om siste beregning ble fryst. For å teste om en stilling er mulig uten å faktisk sende noe til servoene, bruk `is_pose_reachable_exact()`.
 
 ---
 
-## 6. Symboloversikt
+## Parametertabell
 
-| Symbol | Betydning | Standardverdi |
-|--------|-----------|---------------|
-| $r_b$ | Bunnplatens leddradius | 100 mm |
-| $r_p$ | Toppplatens leddradius | 75 mm |
-| $a$ | Servohormlengde | 25 mm |
-| $s$ | Staglengde | 150 mm |
-| $h$ | Hvilehøyde | 120 mm |
-| $\alpha, \beta, \gamma$ | Roll, pitch, yaw | $\leq$ 30° |
-| $\alpha_i$ | Servovinkel for bein $i$ | 0° til 180° |
+Alle verdier fra `config/default_config.yaml`.
+
+| Symbol | Beskrivelse | Verdi |
+|--------|-------------|-------|
+| R_base | Bunnplatens festepunkt-radius | 100 mm |
+| R_top | Toppplatens festepunkt-radius | 75 mm |
+| a | Servoarmlengde | 25 mm |
+| s | Staglengde | 150 mm |
+| h | Hvilehøyde (Z-høyde for toppplaten) | 120 mm |
+| B_i | Bunnfestepunktvinkler | 0°, 60°, 120°, 180°, 240°, 300° |
+| P_i | Toppfestepunktvinkler | 30°, 90°, 150°, 210°, 270°, 330° |
+| α_i | Servovinkel for bein i | 0° (ned) → 90° (horisontalt) → 180° (opp) |
+
+---
+
+## Kode-referanser
+
+| Konsept | Fil |
+|---------|-----|
+| Rotasjonsmatrise og beinvektorer | `stewart_platform/geometry/platform_geometry.py` |
+| Kjernealgoritmen (steg 3) | `stewart_platform/kinematics/inverse_kinematics.py` — `_leg_length_to_servo_angle()` |
+| Frys-mekanismen | `inverse_kinematics.py` — `solve()` |
+| Pose-datastruktur (roll/pitch/yaw) | `stewart_platform/geometry/pose.py` |
+| Geometriparametere | `config/default_config.yaml` |

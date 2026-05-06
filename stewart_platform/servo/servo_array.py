@@ -59,6 +59,25 @@ class ServoArray:
         for i, angle in enumerate(angles):
             self._servos[i].set_angle(angle)
 
+    def set_angles_slewed(self, angles: List[float], dt: float) -> None:
+        """Sett vinkler for alle 6 servoer med slew-rate-begrensning.
+
+        Bruker slew_to_angle per servo slik at bevegelsene blir myke.
+        Ingen forhåndsvalidering av target-vinkler — set_angle klemmer
+        mot grensene internt.
+
+        Args:
+            angles: Liste med 6 målovinkler i grader.
+            dt: Tidsintervall siden forrige oppdatering i sekunder.
+
+        Raises:
+            ValueError: Hvis antall vinkler ikke er 6.
+        """
+        if len(angles) != 6:
+            raise ValueError(f"Krever nøyaktig 6 vinkler, fikk {len(angles)}.")
+        for i, angle in enumerate(angles):
+            self._servos[i].slew_to_angle(angle, dt)
+
     def get_angles(self) -> List[float]:
         """Hent nåværende vinkler for alle 6 servoer.
 

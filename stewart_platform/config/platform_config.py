@@ -63,6 +63,9 @@ class ServoConfig:
     # Servoens monteringsvinkel på bunnplaten i grader.
     mounting_angle_deg: float = 0.0
 
+    # Maks slew-rate i grader per sekund for myk bevegelse.
+    max_slew_rate_deg_per_s: float = 150.0
+
 
 @dataclass
 class PIDGains:

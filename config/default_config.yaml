@@ -26,20 +26,20 @@ home_height: 120.0             # Hvilehøyde for toppplaten over bunnplaten
 # Vinkler (i grader) for de 6 leddpunktene på hver plate.
 # Juster for å matche fysisk plassering av leddene.
 base_joint_angles:
-  - 0.0
-  - 60.0
-  - 120.0
-  - 180.0
-  - 240.0
-  - 300.0
+  - 60.0   # servo 1: oppe-høyre
+  - 0.0    # servo 2: høyre
+  - 300.0  # servo 3: nede-høyre
+  - 240.0  # servo 4: nede-venstre
+  - 180.0  # servo 5: venstre
+  - 120.0  # servo 6: oppe-venstre
 
 platform_joint_angles:
-  - 30.0
   - 90.0
-  - 150.0
-  - 210.0
-  - 270.0
+  - 30.0
   - 330.0
+  - 270.0
+  - 210.0
+  - 150.0
 
 # --- Servokonfigurasjon ---
 # Hver servo har individuell konfigurasjon for enkel tilpasning.
@@ -59,9 +59,10 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: 1
+    direction: -1
     offset_deg: 0.0
-    mounting_angle_deg: 0.0
+    mounting_angle_deg: 60.0
+    max_slew_rate_deg_per_s: 120.0
 
   - channel: 1
     min_pulse_us: 500
@@ -69,9 +70,10 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: 1
+    direction: -1
     offset_deg: 0.0
-    mounting_angle_deg: 60.0
+    mounting_angle_deg: 0.0
+    max_slew_rate_deg_per_s: 120.0
 
   - channel: 2
     min_pulse_us: 500
@@ -79,9 +81,10 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: 1
+    direction: -1
     offset_deg: 0.0
-    mounting_angle_deg: 120.0
+    mounting_angle_deg: 300.0
+    max_slew_rate_deg_per_s: 120.0
 
   - channel: 3
     min_pulse_us: 500
@@ -89,9 +92,10 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: 1
+    direction: -1
     offset_deg: 0.0
-    mounting_angle_deg: 180.0
+    mounting_angle_deg: 240.0
+    max_slew_rate_deg_per_s: 120.0
 
   - channel: 4
     min_pulse_us: 500
@@ -99,9 +103,10 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: 1
+    direction: -1
     offset_deg: 0.0
-    mounting_angle_deg: 240.0
+    mounting_angle_deg: 180.0
+    max_slew_rate_deg_per_s: 120.0
 
   - channel: 5
     min_pulse_us: 500
@@ -109,9 +114,10 @@ servo_configs:
     min_angle_deg: 0.0
     max_angle_deg: 180.0
     home_angle_deg: 90.0
-    direction: 1
+    direction: -1
     offset_deg: 0.0
-    mounting_angle_deg: 300.0
+    mounting_angle_deg: 120.0
+    max_slew_rate_deg_per_s: 120.0
 
 # --- PID-regulatorinnstillinger ---
 # Start med lave verdier og juster opp gradvis under testing.

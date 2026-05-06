@@ -215,10 +215,11 @@ class MotionController:
     def start(self) -> None:
         """Start kontrollsløyfen i en egen tråd.
 
-        Sløyfen kjører med frekvensen spesifisert i
-        control_loop_rate_hz til stop() eller emergency_stop() kalles.
-        Kall to ganger på rad er trygt — eksisterende tråd
-        gjenbrukes.
+        Utfører hjem-sekvens først: servoer til hjemposisjon, IMU-fusjon
+        og PID-integratorer nullstilles. Deretter startes kontrollsløyfen
+        med nåværende fysiske orientering som ny nullreferanse.
+
+        Kall to ganger på rad er trygt — eksisterende tråd gjenbrukes.
 
         Raises:
             RuntimeError: Hvis kontrolleren ikke er initialisert.
@@ -229,6 +230,17 @@ class MotionController:
             )
         if self._thread is not None and self._thread.is_alive():
             return
+        # Hjem-sekvens: gå til hjemposisjon og nullstill referanser
+        self._servo_array.go_home()
+        if self._imu_fusion is not None:
+            self._imu_fusion.reset()
+        if self._pose_controller is not None:
+            self._pose_controller.reset()
+        with self._lock:
+            self._target_pose = Pose.home()
+            self._current_pose = Pose.home()
+            self._last_orientation = Pose.home().rotation
+        self._last_step_time = None
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run, name="motion-loop", daemon=True
@@ -441,9 +453,9 @@ class MotionController:
                 self._previous_safety_safe = True
                 self._last_safety_violations = []
 
-        # 6: Sett servovinkler
+        # 6: Sett servovinkler med slew-rate-begrensning for myk bevegelse
         if self._servo_array is not None:
-            self._servo_array.set_angles(angles)
+            self._servo_array.set_angles_slewed(angles, dt)
 
     @property
     def target_pose(self) -> Pose:

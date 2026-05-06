@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import math
+
 from ..config.platform_config import ServoConfig
 from ..hardware.pca9685_driver import PCA9685Driver
 
@@ -99,6 +101,20 @@ class Servo:
             True hvis vinkelen er innenfor grensene.
         """
         return self._config.min_angle_deg <= angle_deg <= self._config.max_angle_deg
+
+    def slew_to_angle(self, target_deg: float, dt: float) -> None:
+        """Flytt servoen mykere mot target_deg begrenset av max_slew_rate_deg_per_s.
+
+        Args:
+            target_deg: Ønsket vinkel i grader.
+            dt: Tidsintervall siden forrige oppdatering i sekunder.
+        """
+        max_step = self._config.max_slew_rate_deg_per_s * dt
+        current = self._current_angle_deg
+        diff = target_deg - current
+        if abs(diff) > max_step:
+            target_deg = current + math.copysign(max_step, diff)
+        self.set_angle(target_deg)
 
     def go_home(self) -> None:
         """Flytt servoen til hjemmeposisjonen (home_angle_deg).
