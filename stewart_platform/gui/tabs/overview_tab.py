@@ -31,6 +31,7 @@ class OverviewTab(QWidget):
     def __init__(self, bridge: ControllerBridge) -> None:
         super().__init__()
         self._bridge = bridge
+        self._last_event_ts: float = 0.0
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -157,10 +158,10 @@ class OverviewTab(QWidget):
         # Servoer
         self._servo_bars.update_angles(snapshot.servo_angles)
 
-        # Hendelseslogg — oppdater fra bridge-events
+        # Hendelseslogg — legg til kun events nyere enn siste konsumerte
         events = self._bridge.get_events()
-        # Bare legg til nye hendelser (sjekk om loggen er synkronisert)
-        current_count = len(self._event_log)
-        if len(events) > current_count:
-            for ev in reversed(events[current_count:]):
+        new_events = [ev for ev in events if ev.timestamp > self._last_event_ts]
+        if new_events:
+            self._last_event_ts = new_events[0].timestamp
+            for ev in reversed(new_events):
                 self._event_log.add_event(ev.level, ev.message)
