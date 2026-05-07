@@ -18,9 +18,9 @@ lsm6dsox_address: 0x6A         # LSM6DSOXTR IMU på bunnplaten
 # Alle lengder i millimeter, alle vinkler i grader.
 # Juster disse etter den faktiske plattformen er bygget.
 base_radius: 100.0             # Radius fra senter til leddpunkt på bunnplaten
-platform_radius: 75.0          # Radius fra senter til leddpunkt på toppplaten
-servo_horn_length: 25.0        # Lengde på servoarmen (horn)
-rod_length: 150.0              # Lengde på forbindelsesstagen
+platform_radius: 100.0          # Radius fra senter til leddpunkt på toppplaten
+servo_horn_length: 50.0        # Lengde på servoarmen (horn)
+rod_length: 83.0              # Lengde på forbindelsesstagen
 home_height: 140.0             # Hvilehøyde for toppplaten over bunnplaten
 
 # Vinkler (i grader) for de 6 leddpunktene på hver plate.
@@ -127,8 +127,8 @@ pid_gains:
   kp: 1.0                     # Proporsjonal forsterkning
   ki: 0.0                     # Integral forsterkning (start med 0)
   kd: 0.0                     # Derivat forsterkning (start med 0)
-  output_min: -5.0             # Maks korreksjon nedover per tick
-  output_max: 5.0              # Maks korreksjon oppover per tick
+  output_min: -30.0             # Maks korreksjon nedover per tick
+  output_max: 30.0              # Maks korreksjon oppover per tick
   integral_limit: 100.0        # Anti-windup grense
 
 # Kontrollsløyfe-frekvens i Hz. Holdt lavt (25 Hz) for å gi
