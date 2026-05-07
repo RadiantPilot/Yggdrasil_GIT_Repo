@@ -88,7 +88,7 @@ class Vector3:
             ValueError: Hvis vektoren har lengde 0.
         """
         mag = self.magnitude()
-        if mag == 0.0:
+        if mag < 1e-10:
             raise ValueError("Kan ikke normalisere en nullvektor.")
         return Vector3(self.x / mag, self.y / mag, self.z / mag)
 
@@ -137,7 +137,12 @@ class Vector3:
 
         Returns:
             Ny Vector3 med verdiene fra arrayet.
+
+        Raises:
+            ValueError: Hvis arrayet har færre enn 3 elementer.
         """
+        if len(arr) < 3:
+            raise ValueError(f"Array må ha minst 3 elementer, fikk {len(arr)}.")
         return cls(float(arr[0]), float(arr[1]), float(arr[2]))
 
     def __repr__(self) -> str:

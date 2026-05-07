@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from enum import Enum
+
+_logger = logging.getLogger(__name__)
 
 from ..geometry.vector3 import Vector3
 from .i2c_bus import I2CBus
@@ -157,6 +160,9 @@ class LSM6DSOXDriver(IMUInterface):
         self._data_rate = DataRate.ODR_104_HZ
         self._gyro_bias_dps = Vector3(0.0, 0.0, 0.0)
         self._accel_offset_ms2 = Vector3(0.0, 0.0, 0.0)
+        # Cache for siste vellykkede I2C-lesing — returneres ved kommunikasjonsfeil
+        self._last_accel_raw = Vector3(0.0, 0.0, 9.80665)
+        self._last_gyro_raw = Vector3(0.0, 0.0, 0.0)
 
     def configure(
         self,
@@ -300,20 +306,30 @@ class LSM6DSOXDriver(IMUInterface):
 
     def _read_accel_raw_ms2(self) -> Vector3:
         """Råavlesning av akselerometeret i m/s² (uten offset-korreksjon)."""
-        data = self._bus.read_block_data(self._address, _OUTX_L_A, 6)
+        try:
+            data = self._bus.read_block_data(self._address, _OUTX_L_A, 6)
+        except OSError as exc:
+            _logger.warning("I2C-lesing av akselerometer feilet: %s — returnerer siste verdi", exc)
+            return self._last_accel_raw
         x = _twos_complement_16(data[0], data[1])
         y = _twos_complement_16(data[2], data[3])
         z = _twos_complement_16(data[4], data[5])
         # mg/LSB -> g/LSB -> m/s²/LSB
         scale = _ACCEL_SENSITIVITY_MG_PER_LSB[self._accel_range] * 1e-3 * _GRAVITY_MS2
-        return Vector3(x * scale, y * scale, z * scale)
+        self._last_accel_raw = Vector3(x * scale, y * scale, z * scale)
+        return self._last_accel_raw
 
     def _read_gyro_raw_dps(self) -> Vector3:
         """Råavlesning av gyroskopet i grader/s (uten bias-korreksjon)."""
-        data = self._bus.read_block_data(self._address, _OUTX_L_G, 6)
+        try:
+            data = self._bus.read_block_data(self._address, _OUTX_L_G, 6)
+        except OSError as exc:
+            _logger.warning("I2C-lesing av gyroskop feilet: %s — returnerer siste verdi", exc)
+            return self._last_gyro_raw
         x = _twos_complement_16(data[0], data[1])
         y = _twos_complement_16(data[2], data[3])
         z = _twos_complement_16(data[4], data[5])
         # mdps/LSB -> dps/LSB
         scale = _GYRO_SENSITIVITY_MDPS_PER_LSB[self._gyro_range] * 1e-3
-        return Vector3(x * scale, y * scale, z * scale)
+        self._last_gyro_raw = Vector3(x * scale, y * scale, z * scale)
+        return self._last_gyro_raw

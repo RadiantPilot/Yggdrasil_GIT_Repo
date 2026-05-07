@@ -388,7 +388,7 @@ class ControllerBridge(QObject):
 
     def _auto_calibrate_gyro(self) -> None:
         """Kalibrer gyro-bias i bakgrunn ved oppstart. Trådtrygg."""
-        result = self.calibrate_gyro()
+        result, _was_running = self.calibrate_gyro()
         if result is CalibrationResult.OK:
             self._log_event("INFO", "Auto-kalibrering av gyro fullført ved oppstart")
         elif result is not CalibrationResult.NOT_READY:
@@ -511,8 +511,19 @@ class ControllerBridge(QObject):
             self._log_event("FAIL", "Feil ved lagring av konfigurasjon")
             return False
 
+    @property
+    def i2c_bus(self):
+        """Hent I2C-bussen fra MotionController for deling med andre drivere."""
+        if self._controller is not None:
+            return self._controller.i2c_bus
+        return None
+
     def update_safety_limits(self, safety_config: SafetyConfig) -> None:
         """Oppdater sikkerhetsgrenser."""
+        errors = safety_config.validate()
+        if errors:
+            self._log_event("FAIL", f"Ugyldig sikkerhetsconfig: {'; '.join(errors)}")
+            return
         if self._config is not None:
             self._config.safety_config = safety_config
         if not self._mock and self._controller is not None:

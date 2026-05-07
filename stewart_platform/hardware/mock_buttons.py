@@ -34,6 +34,8 @@ class MockButtons(ButtonInterface):
     def read(self) -> int:
         """Les nåværende knappestatus som bitmaske."""
         with self._lock:
+            if self._closed:
+                raise RuntimeError("read() kalt etter close()")
             return self._state
 
     def press(self, button_index: int) -> None:

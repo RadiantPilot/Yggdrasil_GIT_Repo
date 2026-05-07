@@ -97,8 +97,12 @@ def _build_button_driver(
         try:
             # Import lazy så dev-PC uten smbus2 ikke faller på import-tid
             from ..hardware.attiny_i2c_buttons import AttinyI2CButtons
-            from ..hardware.i2c_bus import I2CBus
-            bus = I2CBus(bridge.config.i2c_bus_number)
+            # Del eksisterende I2CBus fra MotionController for å unngå
+            # to ukoordinerte SMBus-deskriptorer til samme buss.
+            bus = bridge.i2c_bus
+            if bus is None:
+                from ..hardware.i2c_bus import I2CBus
+                bus = I2CBus(bridge.config.i2c_bus_number)
             return AttinyI2CButtons(
                 bus,
                 address=cfg.i2c_address,

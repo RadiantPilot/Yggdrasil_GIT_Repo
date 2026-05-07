@@ -24,8 +24,24 @@ class Pose:
         return self.rotation.magnitude() <= max_rotation_deg
 
     def interpolate(self, other: Pose, t: float) -> Pose:
-        """Lineær interpolasjon mellom to orienteringer."""
-        rot = self.rotation + (other.rotation - self.rotation) * t
+        """Sferisk lineær interpolasjon mellom to orienteringer.
+
+        Interpolerer beløp og retning separat for å unngå feil
+        ved store rotasjoner (> ~5°) som ren lineær interpolasjon gir.
+        """
+        mag_self = self.rotation.magnitude()
+        mag_other = other.rotation.magnitude()
+        mag = mag_self + (mag_other - mag_self) * t
+        if mag_self < 1e-10:
+            rot = other.rotation * t
+        elif mag_other < 1e-10:
+            rot = self.rotation * (1.0 - t)
+        else:
+            dir_self = self.rotation * (1.0 / mag_self)
+            dir_other = other.rotation * (1.0 / mag_other)
+            dir_interp = dir_self + (dir_other - dir_self) * t
+            dir_mag = dir_interp.magnitude()
+            rot = dir_interp * (mag / dir_mag) if dir_mag >= 1e-10 else Vector3()
         return Pose(rotation=rot)
 
     @classmethod

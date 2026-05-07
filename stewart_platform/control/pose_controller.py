@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from ..config.platform_config import Axis, PIDGains
 from ..geometry.pose import Pose
 from ..geometry.vector3 import Vector3
@@ -20,7 +22,7 @@ class PoseController:
     """
 
     def __init__(self, gains: PIDGains) -> None:
-        self._controllers = [PIDController(gains) for _ in range(3)]
+        self._controllers = [PIDController(deepcopy(gains)) for _ in range(3)]
 
     def update(self, target: Pose, current: Pose, dt: float) -> Pose:
         """Beregn kommandert orientering = target + PID-korreksjon.
@@ -29,7 +31,9 @@ class PoseController:
         korreksjonen null og kommandert pose lik target.
         """
         setpoints = [target.rotation.x, target.rotation.y, target.rotation.z]
-        measurements = [current.rotation.x, current.rotation.y, current.rotation.z]
+        # Yaw er alltid 0 fra IMU-fusjon (ingen magnetometer). Tving målt yaw
+        # til å matche target-yaw for å unngå integral-oppbygging.
+        measurements = [current.rotation.x, current.rotation.y, target.rotation.z]
         corrections = [
             self._controllers[i].update(setpoints[i], measurements[i], dt)
             for i in range(3)

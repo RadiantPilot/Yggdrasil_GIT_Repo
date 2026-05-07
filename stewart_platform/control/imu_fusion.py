@@ -37,6 +37,8 @@ class IMUFusion:
             alpha: Filtervekting mellom 0 og 1.
                    Høyere verdi = mer gyroskopvekting.
         """
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f"alpha må være i [0, 1], fikk {alpha}.")
         self._alpha = alpha
         self._current_orientation = Vector3()
 

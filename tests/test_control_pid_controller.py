@@ -40,10 +40,10 @@ class TestPIDOpprettelse:
         assert pid is not None
 
     def test_startverdier_er_null(self):
-        """Sjekk at integral og forrige feil starter pa null."""
+        """Sjekk at integral starter pa null og forrige feil er None (ingen spark ved oppstart)."""
         pid = PIDController(PIDGains())
         assert pid._integral == 0.0
-        assert pid._previous_error == 0.0
+        assert pid._previous_error is None
 
 
 class TestPIDProporsjonal:
@@ -180,7 +180,7 @@ class TestPIDReset:
         pid_regulator.update(100.0, 90.0, 0.02)
         pid_regulator.reset()
         assert pid_regulator._integral == 0.0
-        assert pid_regulator._previous_error == 0.0
+        assert pid_regulator._previous_error is None
 
 
 class TestPIDSetGains:

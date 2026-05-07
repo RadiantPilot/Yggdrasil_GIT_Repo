@@ -194,19 +194,24 @@ class PlatformGeometry:
         Returns:
             Hvilehøyde i millimeter.
         """
-        # Ved hjemmeposisjon: beinlengde = rod_length
-        # Horisontal avstand mellom ledd = |platform_joint - base_joint| i XY
-        # Vertikal komponent: h = sqrt(rod_length² - horisontalt²)
-        b = self._base_joints[0]
-        p = self._platform_joints_local[0]
-        dx = p.x - b.x
-        dy = p.y - b.y
-        horisontalt_sq = dx ** 2 + dy ** 2
-        radicand = self._rod_length ** 2 - horisontalt_sq
-        if radicand <= 0:
-            raise ValueError(
-                f"Geometrifeil: stag-lengde ({self._rod_length:.1f} mm) er for kort til å nå "
-                f"plattform-leddet (horisontal avstand {math.sqrt(horisontalt_sq):.1f} mm). "
-                "Sjekk rod_length, base_radius, og platform_radius i konfigurasjonen."
-            )
-        return math.sqrt(radicand)
+        # Ved hjemmeposisjon: hvert bein er vertikal med lengde rod_length.
+        # h = sqrt(rod_length² - horisontalt_sq_i) for hvert ledd i.
+        # Returner den minste gyldige høyden (mest restriktivt) slik at
+        # alle 6 ledd er innenfor rekkevidden.
+        min_height = float("inf")
+        for i in range(6):
+            b = self._base_joints[i]
+            p = self._platform_joints_local[i]
+            dx = p.x - b.x
+            dy = p.y - b.y
+            horisontalt_sq = dx ** 2 + dy ** 2
+            radicand = self._rod_length ** 2 - horisontalt_sq
+            if radicand <= 0:
+                raise ValueError(
+                    f"Geometrifeil ledd {i}: stag-lengde ({self._rod_length:.1f} mm) er for "
+                    f"kort til å nå plattform-leddet (horisontal avstand "
+                    f"{math.sqrt(horisontalt_sq):.1f} mm). "
+                    "Sjekk rod_length, base_radius, og platform_radius i konfigurasjonen."
+                )
+            min_height = min(min_height, math.sqrt(radicand))
+        return min_height

@@ -113,6 +113,32 @@ class SafetyConfig:
     # Terskel for IMU-feildeteksjon i g.
     imu_fault_threshold_g: float = 4.0
 
+    def validate(self) -> List[str]:
+        """Valider at sikkerhetsgrensene er fysisk meningsfulle.
+
+        Returns:
+            Tom liste hvis alt er gyldig, ellers liste med feilmeldinger.
+        """
+        errors: List[str] = []
+        if self.max_rotation_deg <= 0:
+            errors.append(
+                f"max_rotation_deg må være > 0, fikk {self.max_rotation_deg}."
+            )
+        if self.max_angular_velocity_deg_per_s <= 0:
+            errors.append(
+                "max_angular_velocity_deg_per_s må være > 0, "
+                f"fikk {self.max_angular_velocity_deg_per_s}."
+            )
+        if self.servo_angle_margin_deg < 0:
+            errors.append(
+                f"servo_angle_margin_deg må være >= 0, fikk {self.servo_angle_margin_deg}."
+            )
+        if self.imu_fault_threshold_g <= 0:
+            errors.append(
+                f"imu_fault_threshold_g må være > 0, fikk {self.imu_fault_threshold_g}."
+            )
+        return errors
+
 
 @dataclass
 class PlatformConfig:
@@ -290,6 +316,22 @@ class PlatformConfig:
             errors.append(f"home_height må være positiv, fikk {self.home_height}.")
         if self.servo_horn_length <= 0:
             errors.append(f"servo_horn_length må være positiv, fikk {self.servo_horn_length}.")
+
+        # Valider PID-gains
+        gains = self.pid_gains
+        if gains.kp < 0 or gains.ki < 0 or gains.kd < 0:
+            errors.append("PID-forsterkninger (kp, ki, kd) må være >= 0.")
+        if gains.integral_limit <= 0:
+            errors.append(
+                f"integral_limit må være > 0, fikk {gains.integral_limit}."
+            )
+        if gains.output_max <= gains.output_min:
+            errors.append(
+                f"output_max ({gains.output_max}) må være > output_min ({gains.output_min})."
+            )
+
+        # Valider SafetyConfig
+        errors.extend(self.safety_config.validate())
 
         return errors
 

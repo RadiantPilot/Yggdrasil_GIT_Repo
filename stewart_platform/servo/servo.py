@@ -87,13 +87,16 @@ class Servo:
         angle_range = cfg.max_angle_deg - cfg.min_angle_deg
         pulse_range = cfg.max_pulse_us - cfg.min_pulse_us
 
-        # Normaliser vinkelen til [0, 1] og inverter ved direction=-1
+        # Normaliser vinkelen til [0, 1]
         ratio = (angle_deg - cfg.min_angle_deg) / angle_range
+
+        # Kalibreringsoffset i grader konverteres til ratio-rom (før inversjon
+        # slik at offset har riktig fortegn for begge retninger).
+        ratio += cfg.offset_deg / angle_range
+
+        # Inverter ved direction=-1
         if cfg.direction < 0:
             ratio = 1.0 - ratio
-
-        # Kalibreringsoffset i grader konverteres til ratio-rom
-        ratio += cfg.offset_deg / angle_range
 
         return int(round(cfg.min_pulse_us + ratio * pulse_range))
 

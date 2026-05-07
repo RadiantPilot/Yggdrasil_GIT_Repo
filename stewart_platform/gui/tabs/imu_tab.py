@@ -160,10 +160,7 @@ class ImuTab(QWidget):
         self._btn_gyro = QPushButton("Kalibrer Gyro")
         self._btn_gyro.clicked.connect(self._on_cal_gyro)
         btn_row.addWidget(self._btn_gyro)
-
-        self._btn_accel = QPushButton("Kalibrer Akselerometer")
-        self._btn_accel.clicked.connect(self._on_cal_accel)
-        btn_row.addWidget(self._btn_accel)
+        btn_row.addStretch()
 
         cl.addLayout(btn_row)
 
@@ -186,7 +183,6 @@ class ImuTab(QWidget):
         if self._cal_thread is not None and self._cal_thread.isRunning():
             return
         self._btn_gyro.setEnabled(False)
-        self._btn_accel.setEnabled(False)
         label = "Gyro" if cal_type == "gyro" else "Akselerometer"
         self._cal_status.setText(f"{label}-kalibrering kjører — hold plattformen stille...")
         self._cal_status.setStyleSheet("font-size: 10px; color: #888;")
@@ -200,14 +196,9 @@ class ImuTab(QWidget):
     def _on_cal_gyro(self) -> None:
         self._start_calibration("gyro")
 
-    @Slot()
-    def _on_cal_accel(self) -> None:
-        self._start_calibration("accel")
-
     @Slot(str, object, bool)
     def _on_cal_done(self, name: str, result: object, was_running: bool) -> None:
         self._btn_gyro.setEnabled(True)
-        self._btn_accel.setEnabled(True)
         self._show_cal_result(name, result)
         if result is CalibrationResult.OK and was_running:
             ans = QMessageBox.question(

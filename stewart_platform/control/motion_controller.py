@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Callable, List, Optional, TYPE_CHECKING
+
+_logger = logging.getLogger(__name__)
 
 from ..geometry.pose import Pose
 from ..geometry.vector3 import Vector3
@@ -86,9 +89,13 @@ class MotionController:
         # Teller for konsekutive IK-feil (kun ekte unntak, ikke
         # klemming). IK klemmer/fryser nå marginale poser i stedet
         # for å kaste, så denne telleren utløses primært av
-        # degenerert geometri (R < 1e-10). Brukes ikke lenger til
+        # degenerert geometri (R < 0.1 mm). Brukes ikke lenger til
         # e-stop — kun til diagnostikk og throttlet ERROR-varsling.
         self._consecutive_ik_failures = 0
+        # Siste vellykkede sett servovinkler — brukes som fallback
+        # når IK kaster ValueError, slik at servoene beveger seg til
+        # en kjent sikker posisjon i stedet for å fryse.
+        self._last_valid_angles: List[float] = []
         # Forrige tick sin klemmingstilstand. Brukes for å varsle
         # GUI kun ved tilstandsovergang (ikke 50 Hz spam).
         self._previous_clamp_state = False
@@ -344,8 +351,12 @@ class MotionController:
         """
         now = time.monotonic()
         if self._last_step_time is not None:
-            dt = now - self._last_step_time
-            dt = max(1e-4, min(dt, 0.2))  # ignorer stall >200 ms
+            raw_dt = now - self._last_step_time
+            dt = max(1e-4, min(raw_dt, 0.2))
+            if raw_dt > 0.2:
+                _logger.warning(
+                    "Kontrollsløyfe stall oppdaget: dt=%.3f s, klippet til 0.2 s", raw_dt
+                )
         else:
             dt = 1.0 / self._loop_rate_hz
         self._last_step_time = now
@@ -387,19 +398,23 @@ class MotionController:
         except ValueError as ik_exc:
             self._consecutive_ik_failures += 1
             # Logg kun den første feilen — å spamme signalkøen 50
-            # ganger per sekund kan gjøre GUI-en uresponsiv. Vi
-            # e-stopper ikke lenger ved gjentatte feil; klemming gjør
-            # det stort sett unødvendig, og en e-stop som ikke kan
-            # nullstilles fra GUI-en er verre enn å la operatøren
-            # se WARNING-en og ta affære.
+            # ganger per sekund kan gjøre GUI-en uresponsiv.
             if self._consecutive_ik_failures == 1:
                 self._notify_safety_violations(
                     SafetySeverity.WARNING,
                     [f"IK kastet unntak (degenerert geometri?): {ik_exc}"],
                 )
+            # Send servoene til siste kjente gyldige stilling, eller
+            # til hjemposisjon ved første feil. Fryser ikke blindt.
+            if self._servo_array is not None:
+                if self._last_valid_angles:
+                    self._servo_array.set_angles_slewed(self._last_valid_angles, dt)
+                else:
+                    self._servo_array.go_home()
             return
-        # IK lyktes — nullstill teller for ekte unntak.
+        # IK lyktes — nullstill teller og oppdater fallback-cache.
         self._consecutive_ik_failures = 0
+        self._last_valid_angles = list(angles)
 
         # Klemming-deteksjon: varsle kun ved tilstandsovergang slik at
         # vi ikke pakker Qt-signalkøen. Når klemming starter, send
@@ -459,6 +474,18 @@ class MotionController:
         # 6: Sett servovinkler med slew-rate-begrensning for myk bevegelse
         if self._servo_array is not None:
             self._servo_array.set_angles_slewed(angles, dt)
+
+    @property
+    def i2c_bus(self) -> I2CBus | None:
+        """Hent I2C-bussen som brukes av kontrolleren.
+
+        Eksponeres slik at andre drivere (f.eks. knappekort) kan dele
+        samme SMBus-deskriptor og unngå I2C-konflikter.
+
+        Returns:
+            I2CBus-instansen, eller None hvis ikke initialisert.
+        """
+        return self._bus
 
     @property
     def target_pose(self) -> Pose:

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from ..config.platform_config import PIDGains
 
 
@@ -31,7 +33,7 @@ class PIDController:
         """
         self._gains = gains
         self._integral = 0.0
-        self._previous_error = 0.0
+        self._previous_error: Optional[float] = None
 
     def update(self, setpoint: float, measurement: float, dt: float) -> float:
         """Beregn PID-utgangen for en kontrollsyklus.
@@ -59,8 +61,11 @@ class PIDController:
                              min(self._gains.integral_limit, self._integral))
         i_term = self._gains.ki * self._integral
 
-        # Derivatledd
-        d_term = self._gains.kd * (error - self._previous_error) / dt if dt > 0 else 0.0
+        # Derivatledd — hoppes over på første kall (ingen forrige feil)
+        if self._previous_error is None or dt <= 0:
+            d_term = 0.0
+        else:
+            d_term = self._gains.kd * (error - self._previous_error) / dt
         self._previous_error = error
 
         # Sum med utgangsbegrensning
@@ -75,7 +80,7 @@ class PIDController:
         uventede utslag fra gammelt integralbidrag.
         """
         self._integral = 0.0
-        self._previous_error = 0.0
+        self._previous_error = None
 
     def set_gains(self, gains: PIDGains) -> None:
         """Oppdater forsterkningsparametrene.

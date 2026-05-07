@@ -52,6 +52,10 @@ class InverseKinematics:
             servo_configs: Liste med 6 servoinnstillinger (armlengde,
                           monteringsvinkel, grenser).
         """
+        if len(servo_configs) != 6:
+            raise ValueError(
+                f"Krever nøyaktig 6 servo-configs, fikk {len(servo_configs)}."
+            )
         self._geometry = geometry
         self._servo_configs = servo_configs
         # Cache leddvinklene lokalt slik at IK ikke trenger å nå inn
@@ -184,7 +188,7 @@ class InverseKinematics:
 
         # Omskrevet: R·sin(α - δ) = M, der R = √(L_r² + L_z²), δ = atan2(L_z, L_r)
         R = math.sqrt(L_r ** 2 + L_z ** 2)
-        if R < 1e-10:
+        if R < 0.1:
             raise ValueError("Beinvektor har null lengde i servoplanet.")
 
         sin_val = M / R

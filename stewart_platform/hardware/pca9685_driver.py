@@ -79,6 +79,8 @@ class PCA9685Driver:
         Args:
             freq_hz: Ønsket frekvens i Hz (typisk 50 for servoer).
         """
+        if freq_hz <= 0:
+            raise ValueError(f"Frekvens må være positiv, fikk {freq_hz} Hz.")
         prescale = int(round(_OSCILLATOR_HZ / (_PWM_RESOLUTION * freq_hz))) - 1
         if not 3 <= prescale <= 255:
             raise ValueError(
