@@ -21,7 +21,7 @@ base_radius: 100.0             # Radius fra senter til leddpunkt på bunnplaten
 platform_radius: 75.0          # Radius fra senter til leddpunkt på toppplaten
 servo_horn_length: 25.0        # Lengde på servoarmen (horn)
 rod_length: 150.0              # Lengde på forbindelsesstagen
-home_height: 120.0             # Hvilehøyde for toppplaten over bunnplaten
+home_height: 140.0             # Hvilehøyde for toppplaten over bunnplaten
 
 # Vinkler (i grader) for de 6 leddpunktene på hver plate.
 # Juster for å matche fysisk plassering av leddene.
@@ -140,7 +140,7 @@ control_loop_rate_hz: 25.0
 safety_config:
   enabled: true                        # Slå av for bringup/tuning
   max_rotation_deg: 30.0               # Maks rotasjon fra nøytral
-  max_angular_velocity_deg_per_s: 60.0 # Maks vinkelhastighet
+  max_angular_velocity_deg_per_s: 300.0 # Maks vinkelhastighet
   servo_angle_margin_deg: 3.0          # Sikkerhetsmargin fra mekanisk grense (økt fra 1° — reelle servoer har ±1-3° spill)
   watchdog_timeout_s: 1.0              # Watchdog-tidsgrense
   imu_fault_threshold_g: 4.0           # Terskel for IMU-feildeteksjon
