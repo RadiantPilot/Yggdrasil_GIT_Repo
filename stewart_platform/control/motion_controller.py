@@ -175,7 +175,7 @@ class MotionController:
         self._safety_monitor = SafetyMonitor(cfg.safety_config, cfg.servo_configs)
 
         # Gå til hjemmeposisjon
-        self._servo_array.go_home()
+        self._go_to_ik_home()
 
         # Pre-fyll IMU-cache slik at GUI-polling kan lese fra cache fra
         # første tick — uten dette ville snapshot vise nuller helt til
@@ -218,7 +218,25 @@ class MotionController:
         with self._lock:
             self._target_pose = Pose.home()
         if self._servo_array is not None and not self.is_running():
-            self._servo_array.go_home()
+            self._go_to_ik_home()
+
+    def _go_to_ik_home(self) -> None:
+        """Flytt servoene til IK-beregnet hjemposisjon.
+
+        Bruker IK-solveren til å beregne de geometrisk korrekte
+        servovinklene for null-rotasjon, slik at home og start-posisjon
+        er identiske og ingen brå hopp oppstår.
+        """
+        if self._servo_array is None:
+            return
+        if self._ik_solver is not None:
+            try:
+                angles = self._ik_solver.solve(Pose.home())
+                self._servo_array.set_angles(angles)
+                return
+            except (ValueError, Exception):
+                pass
+        self._servo_array.go_home()
 
     def start(self) -> None:
         """Start kontrollsløyfen i en egen tråd.
@@ -241,7 +259,7 @@ class MotionController:
         if self._thread is not None and self._thread.is_alive():
             return
         # Hjem-sekvens: gå til hjemposisjon og nullstill referanser
-        self._servo_array.go_home()
+        self._go_to_ik_home()
         if self._imu_fusion is not None:
             self._imu_fusion.reset()
         if self._pose_controller is not None:
@@ -410,7 +428,7 @@ class MotionController:
                 if self._last_valid_angles:
                     self._servo_array.set_angles_slewed(self._last_valid_angles, dt)
                 else:
-                    self._servo_array.go_home()
+                    self._go_to_ik_home()
             return
         # IK lyktes — nullstill teller og oppdater fallback-cache.
         self._consecutive_ik_failures = 0
