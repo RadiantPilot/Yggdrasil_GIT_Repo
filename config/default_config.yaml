@@ -21,7 +21,7 @@ base_radius: 100.0             # Radius fra senter til leddpunkt på bunnplaten
 platform_radius: 100.0          # Radius fra senter til leddpunkt på toppplaten
 servo_horn_length: 50.0        # Lengde på servoarmen (horn)
 rod_length: 83.0              # Lengde på forbindelsesstagen
-home_height: 140.0             # Hvilehøyde for toppplaten over bunnplaten
+home_height: 70.0             # Hvilehøyde for toppplaten over bunnplaten
 
 # Vinkler (i grader) for de 6 leddpunktene på hver plate.
 # Juster for å matche fysisk plassering av leddene.
