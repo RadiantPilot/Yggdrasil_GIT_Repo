@@ -7,7 +7,7 @@ watchdog-status og hendelseslogg.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGridLayout,
@@ -27,6 +27,166 @@ from ..widgets.event_log import EventLog
 from ..widgets.indicator_lamp import IndicatorLamp
 
 
+_ESTOP_BASE = (
+    "QPushButton { background: #c0392b; color: white; font-weight: bold; "
+    "font-size: 14px; border-radius: 6px; border: 2px solid transparent; }"
+    "QPushButton:hover { background: #a93226; }"
+)
+_ESTOP_ACTIVE = (
+    "QPushButton { background: #c0392b; color: white; font-weight: bold; "
+    "font-size: 14px; border-radius: 6px; border: 2px solid #f39c12; }"
+    "QPushButton:hover { background: #a93226; }"
+)
+
+
+class _NavigableEstopButtons(QWidget):
+    """E-STOP + Tilbakestill som navigerbar widget for knappekortet.
+
+    nav_vertical sykler mellom de to knappene.
+    nav_horizontal utløser den aktive knappen.
+    """
+
+    estop_requested = Signal()
+    reset_requested = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._active = 0  # 0=E-STOP, 1=Tilbakestill
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._btn_estop = QPushButton("E-STOP")
+        self._btn_estop.setFixedSize(120, 50)
+        self._btn_estop.setStyleSheet(_ESTOP_BASE)
+        self._btn_estop.clicked.connect(self.estop_requested)
+        layout.addWidget(self._btn_estop)
+
+        self._btn_reset = QPushButton("Tilbakestill")
+        self._btn_reset.setFixedSize(120, 30)
+        self._btn_reset.clicked.connect(self.reset_requested)
+        layout.addWidget(self._btn_reset)
+
+    def set_focused(self, focused: bool) -> None:
+        if focused:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def set_edit_mode(self, edit: bool) -> None:
+        if edit:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def nav_vertical(self, delta: int) -> None:
+        self._active = (self._active + delta) % 2
+        self._highlight()
+
+    def nav_horizontal(self, delta: int) -> None:
+        if self._active == 0:
+            self.estop_requested.emit()
+        else:
+            self.reset_requested.emit()
+
+    def _highlight(self) -> None:
+        self._btn_estop.setStyleSheet(_ESTOP_ACTIVE if self._active == 0 else _ESTOP_BASE)
+        self._btn_reset.setStyleSheet("background: #f9d77e;" if self._active == 1 else "")
+
+    def _clear_highlight(self) -> None:
+        self._btn_estop.setStyleSheet(_ESTOP_BASE)
+        self._btn_reset.setStyleSheet("")
+
+
+class _NavigableLimitsEditor(QWidget):
+    """Sikkerhetsgrenser (4 spins + Bruk-knapp) som navigerbar widget.
+
+    nav_vertical sykler mellom de 4 feltene og Bruk-knappen.
+    nav_horizontal justerer aktiv spinbox med ett steg, eller trykker Bruk.
+    """
+
+    apply_requested = Signal()
+
+    _FIELDS: list[tuple[str, str, float, float, float]] = [
+        ("max_rotation_deg",             "Maks rotasjon (°)",          1.0,  90.0, 1.0),
+        ("max_angular_velocity_deg_per_s","Maks vinkelhastighet (°/s)", 1.0, 360.0, 5.0),
+        ("servo_angle_margin_deg",        "Servomargin (°)",            0.0,  30.0, 0.5),
+        ("imu_fault_threshold_g",         "IMU-terskel (g)",            0.5,  20.0, 0.5),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._active = 0
+        self._n_spins = len(self._FIELDS)
+
+        lg = QGridLayout(self)
+        lg.setSpacing(6)
+        lg.setContentsMargins(0, 0, 0, 0)
+
+        self.spins: dict[str, QDoubleSpinBox] = {}
+        self._labels: list[QLabel] = []
+
+        for i, (key, label, mn, mx, step) in enumerate(self._FIELDS):
+            lbl = QLabel(label)
+            lg.addWidget(lbl, i, 0)
+            self._labels.append(lbl)
+
+            spin = QDoubleSpinBox()
+            spin.setRange(mn, mx)
+            spin.setSingleStep(step)
+            spin.setDecimals(1)
+            spin.setFixedWidth(90)
+            lg.addWidget(spin, i, 1)
+            self.spins[key] = spin
+
+        btn_row = QHBoxLayout()
+        self._btn_apply = QPushButton("Bruk grenser")
+        self._btn_apply.clicked.connect(self.apply_requested)
+        btn_row.addWidget(self._btn_apply)
+        btn_row.addStretch()
+        lg.addLayout(btn_row, self._n_spins, 0, 1, 2)
+
+    def set_focused(self, focused: bool) -> None:
+        if focused:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def set_edit_mode(self, edit: bool) -> None:
+        if edit:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def nav_vertical(self, delta: int) -> None:
+        self._active = (self._active + delta) % (self._n_spins + 1)
+        self._highlight()
+
+    def nav_horizontal(self, delta: int) -> None:
+        if self._active < self._n_spins:
+            key = self._FIELDS[self._active][0]
+            spin = self.spins[key]
+            spin.setValue(spin.value() + delta * spin.singleStep())
+        else:
+            self.apply_requested.emit()
+
+    def _highlight(self) -> None:
+        for i, (key, *_) in enumerate(self._FIELDS):
+            active = i == self._active
+            self.spins[key].setStyleSheet("background: #f9d77e;" if active else "")
+            self._labels[i].setStyleSheet("font-weight: 700;" if active else "")
+        self._btn_apply.setStyleSheet(
+            "background: #f9d77e;" if self._active == self._n_spins else ""
+        )
+
+    def _clear_highlight(self) -> None:
+        for key in self.spins:
+            self.spins[key].setStyleSheet("")
+        for lbl in self._labels:
+            lbl.setStyleSheet("")
+        self._btn_apply.setStyleSheet("")
+
+
 class SafetyTab(QWidget):
     """Sikkerhetsfane med E-STOP, sjekker, grenser og hendelseslogg."""
 
@@ -42,7 +202,7 @@ class SafetyTab(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        # --- E-STOP banner ---
+        # --- E-STOP banner + knapper ---
         estop_row = QHBoxLayout()
         estop_row.setSpacing(16)
 
@@ -56,40 +216,27 @@ class SafetyTab(QWidget):
         )
         estop_row.addWidget(self._estop_banner, 1)
 
-        btn_col = QVBoxLayout()
-        self._btn_estop = QPushButton("E-STOP")
-        self._btn_estop.setFixedSize(120, 50)
-        self._btn_estop.setStyleSheet(
-            "QPushButton { background: #c0392b; color: white; "
-            "font-weight: bold; font-size: 14px; border-radius: 6px; }"
-            "QPushButton:hover { background: #a93226; }"
-        )
-        self._btn_estop.clicked.connect(self._on_estop)
-        btn_col.addWidget(self._btn_estop)
+        self._estop_panel = _NavigableEstopButtons()
+        self._estop_panel.estop_requested.connect(self._on_estop)
+        self._estop_panel.reset_requested.connect(self._on_reset)
+        estop_row.addWidget(self._estop_panel)
 
-        self._btn_reset = QPushButton("Tilbakestill")
-        self._btn_reset.setFixedSize(120, 30)
-        self._btn_reset.clicked.connect(self._on_reset)
-        btn_col.addWidget(self._btn_reset)
-
-        estop_row.addLayout(btn_col)
         root.addLayout(estop_row)
 
         # --- Midtre rad: sjekker + grenser ---
         mid = QHBoxLayout()
         mid.setSpacing(12)
 
-        # Sikkerhetssjekker
         checks_box = QGroupBox("Sikkerhetssjekker")
         cl = QVBoxLayout(checks_box)
         cl.setSpacing(6)
 
         self._check_lamps: dict[str, IndicatorLamp] = {}
         check_names = [
-            ("pose_ok", "Rotasjon innenfor grenser"),
-            ("servo_ok", "Servovinkler gyldige"),
+            ("pose_ok",     "Rotasjon innenfor grenser"),
+            ("servo_ok",    "Servovinkler gyldige"),
             ("velocity_ok", "Vinkelhastighet innenfor grenser"),
-            ("imu_ok", "IMU-data gyldig"),
+            ("imu_ok",      "IMU-data gyldig"),
             ("watchdog_ok", "Watchdog aktiv"),
             ("estop_clear", "E-STOP ikke utløst"),
         ]
@@ -100,56 +247,38 @@ class SafetyTab(QWidget):
 
         cl.addStretch()
 
-        # Siste sjekk-resultat
         self._last_check_label = QLabel("Ingen sjekker utført")
         self._last_check_label.setStyleSheet("font-size: 10px; color: #888;")
         cl.addWidget(self._last_check_label)
 
         mid.addWidget(checks_box, 1)
 
-        # Sikkerhetsgrenser
         limits_box = QGroupBox("Sikkerhetsgrenser")
-        lg = QGridLayout(limits_box)
-        lg.setSpacing(6)
+        ll = QVBoxLayout(limits_box)
+        ll.setContentsMargins(8, 8, 8, 8)
 
-        self._limit_spins: dict[str, QDoubleSpinBox] = {}
-        limit_fields = [
-            ("max_rotation_deg", "Maks rotasjon (°)", 1.0, 90.0, 1.0),
-            ("max_angular_velocity_deg_per_s", "Maks vinkelhastighet (°/s)", 1.0, 360.0, 5.0),
-            ("servo_angle_margin_deg", "Servomargin (°)", 0.0, 30.0, 0.5),
-            ("imu_fault_threshold_g", "IMU-terskel (g)", 0.5, 20.0, 0.5),
-        ]
-        for i, (key, label, mn, mx, step) in enumerate(limit_fields):
-            lg.addWidget(QLabel(label), i, 0)
-            spin = QDoubleSpinBox()
-            spin.setRange(mn, mx)
-            spin.setSingleStep(step)
-            spin.setDecimals(1)
-            spin.setFixedWidth(90)
-            lg.addWidget(spin, i, 1)
-            self._limit_spins[key] = spin
+        self._limits_editor = _NavigableLimitsEditor()
+        self._limits_editor.apply_requested.connect(self._on_apply_limits)
+        ll.addWidget(self._limits_editor)
 
-        # Knapper for grenser
-        lim_btn_row = QHBoxLayout()
-        self._btn_apply_limits = QPushButton("Bruk grenser")
-        self._btn_apply_limits.clicked.connect(self._on_apply_limits)
-        lim_btn_row.addWidget(self._btn_apply_limits)
-        lim_btn_row.addStretch()
-        lg.addLayout(lim_btn_row, len(limit_fields), 0, 1, 2)
+        # Bakoverkompatibilitet: _load_limits og _on_apply_limits bruker dette
+        self._limit_spins = self._limits_editor.spins
 
         mid.addWidget(limits_box, 1)
-
         root.addLayout(mid)
 
         # --- Hendelseslogg ---
         log_box = QGroupBox("Sikkerhetshendelser")
-        ll = QVBoxLayout(log_box)
+        ll2 = QVBoxLayout(log_box)
         self._event_log = EventLog(max_events=30)
-        ll.addWidget(self._event_log)
+        ll2.addWidget(self._event_log)
         root.addWidget(log_box, 1)
 
+    def get_navigables(self) -> list:
+        """E-STOP-panel + grenseeditor for FocusManager."""
+        return [self._estop_panel, self._limits_editor]
+
     def _load_limits(self) -> None:
-        """Last sikkerhetsgrenser fra config."""
         cfg = self._bridge.config.safety_config
         self._limit_spins["max_rotation_deg"].setValue(cfg.max_rotation_deg)
         self._limit_spins["max_angular_velocity_deg_per_s"].setValue(cfg.max_angular_velocity_deg_per_s)
@@ -168,7 +297,6 @@ class SafetyTab(QWidget):
 
     @Slot()
     def _on_apply_limits(self) -> None:
-        """Bruk nye sikkerhetsgrenser."""
         cfg = self._bridge.config.safety_config
         new_config = SafetyConfig(
             max_rotation_deg=self._limit_spins["max_rotation_deg"].value(),
@@ -182,7 +310,6 @@ class SafetyTab(QWidget):
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Oppdater sikkerhetsvisning fra snapshot."""
-        # E-STOP banner
         if snapshot.is_e_stopped:
             reason = snapshot.e_stop_reason or "Ukjent årsak"
             self._estop_banner.setText(f"NØDSTOPP AKTIV — {reason}")
@@ -206,9 +333,6 @@ class SafetyTab(QWidget):
                 "border-radius: 6px; padding: 8px;"
             )
 
-        # Sikkerhetssjekker — basert på siste resultat. Vi ser etter
-        # nøkkelord i violation-strengene fordi safety_monitor
-        # genererer detaljerte meldinger med tall.
         result = snapshot.latest_safety_result
         if result is not None:
             joined = " ".join(result.violations)
@@ -235,11 +359,8 @@ class SafetyTab(QWidget):
 
             n_checks = len(snapshot.safety_results)
             n_fail = sum(1 for r in snapshot.safety_results if not r.is_safe)
-            self._last_check_label.setText(
-                f"Siste {n_checks} sjekker — {n_fail} brudd"
-            )
+            self._last_check_label.setText(f"Siste {n_checks} sjekker — {n_fail} brudd")
 
-        # E-stop og watchdog lamper
         self._check_lamps["estop_clear"].set_state(
             not snapshot.is_e_stopped,
             "green" if not snapshot.is_e_stopped else "red",
@@ -249,7 +370,6 @@ class SafetyTab(QWidget):
             "green" if (snapshot.is_running or not snapshot.is_e_stopped) else "yellow",
         )
 
-        # Hendelseslogg — legg til kun events nyere enn siste konsumerte
         events = self._bridge.get_events()
         new_events = [ev for ev in events if ev.timestamp > self._last_event_ts]
         if new_events:

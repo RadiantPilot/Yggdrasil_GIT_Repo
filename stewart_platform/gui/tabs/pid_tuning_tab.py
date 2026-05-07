@@ -8,6 +8,8 @@ beregnet for å holde seg vannrett (roll + pitch).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -30,6 +32,60 @@ from ..bridge.controller_bridge import ControllerBridge
 from ..bridge.state_snapshot import StateSnapshot
 from ..widgets.pid_card import PidCard
 from ..widgets.realtime_plot import RealtimePlot
+
+
+class _NavigablePresets(QWidget):
+    """Preset-knapper (Null, Roll +10°, Pitch +10°) som navigerbar widget.
+
+    nav_vertical sykler mellom de tre knappene.
+    nav_horizontal utløser den aktive presetens handling.
+    """
+
+    def __init__(self, presets: list[tuple[str, Callable[[], None]]]) -> None:
+        super().__init__()
+        self._active = 0
+        self._callbacks = [cb for _, cb in presets]
+        self._btns: list[QPushButton] = []
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        for label, _ in presets:
+            btn = QPushButton(label)
+            layout.addWidget(btn)
+            self._btns.append(btn)
+        layout.addStretch()
+
+        for i, btn in enumerate(self._btns):
+            btn.clicked.connect(lambda _, idx=i: self._callbacks[idx]())
+
+    def set_focused(self, focused: bool) -> None:
+        if focused:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def set_edit_mode(self, edit: bool) -> None:
+        if edit:
+            self._highlight()
+        else:
+            self._clear_highlight()
+
+    def nav_vertical(self, delta: int) -> None:
+        self._active = (self._active + delta) % len(self._btns)
+        self._highlight()
+
+    def nav_horizontal(self, delta: int) -> None:
+        self._callbacks[self._active]()
+
+    def _highlight(self) -> None:
+        for i, btn in enumerate(self._btns):
+            btn.setStyleSheet("background: #f9d77e;" if i == self._active else "")
+
+    def _clear_highlight(self) -> None:
+        for btn in self._btns:
+            btn.setStyleSheet("")
 
 
 # (Akse, navn, kp_max, ki_max, kd_max)
@@ -230,17 +286,12 @@ class PidTuningTab(QWidget):
         self._sliders.rotation_changed.connect(self._on_target_changed)
         tl.addWidget(self._sliders)
 
-        preset_row = QHBoxLayout()
-        for label, callback in [
-            ("Null", self._preset_zero),
-            ("Roll +10°", lambda: self._preset_axis(0, 10.0)),
+        self._presets = _NavigablePresets([
+            ("Null",       self._preset_zero),
+            ("Roll +10°",  lambda: self._preset_axis(0, 10.0)),
             ("Pitch +10°", lambda: self._preset_axis(1, 10.0)),
-        ]:
-            btn = QPushButton(label)
-            btn.clicked.connect(callback)
-            preset_row.addWidget(btn)
-        preset_row.addStretch()
-        tl.addLayout(preset_row)
+        ])
+        tl.addWidget(self._presets)
 
         self._status_label = QLabel("")
         self._status_label.setStyleSheet("font-size: 11px; color: #888;")
@@ -347,8 +398,8 @@ class PidTuningTab(QWidget):
     # ------------------------------------------------------------------
 
     def get_navigables(self) -> list:
-        """PID-kortene + målorienterings-sliders for FocusManager."""
-        return [self._cards[axis] for axis, *_ in _AXES] + [self._sliders]
+        """PID-kort, mål-sliders og preset-knapper for FocusManager."""
+        return [self._cards[axis] for axis, *_ in _AXES] + [self._sliders, self._presets]
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Oppdater feilkort og sanntidsgraf fra snapshot."""

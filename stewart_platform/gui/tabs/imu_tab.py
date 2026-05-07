@@ -24,6 +24,36 @@ from ..bridge.state_snapshot import StateSnapshot
 from ..widgets.realtime_plot import RealtimePlot
 
 
+class _NavigableCalibButton(QWidget):
+    """'Kalibrer Gyro'-knapp som navigerbar widget for knappekortet.
+
+    nav_horizontal utløser kalibrering.
+    """
+
+    cal_requested = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.btn = QPushButton("Kalibrer Gyro")
+        self.btn.clicked.connect(self.cal_requested)
+        layout.addWidget(self.btn)
+        layout.addStretch()
+
+    def set_focused(self, focused: bool) -> None:
+        self.btn.setStyleSheet("background: #f9d77e;" if focused else "")
+
+    def set_edit_mode(self, edit: bool) -> None:
+        self.btn.setStyleSheet("background: #f9d77e;" if edit else "")
+
+    def nav_vertical(self, delta: int) -> None:
+        pass
+
+    def nav_horizontal(self, delta: int) -> None:
+        self.cal_requested.emit()
+
+
 class _CalibrationThread(QThread):
     """Kjører gyro- eller akselerometer-kalibrering uten å blokkere GUI-tråden."""
     finished = Signal(str, object, bool)  # (sensor-navn, CalibrationResult, was_running)
@@ -156,13 +186,10 @@ class ImuTab(QWidget):
         cal_info.setStyleSheet("font-size: 10px; color: #888;")
         cl.addWidget(cal_info)
 
-        btn_row = QHBoxLayout()
-        self._btn_gyro = QPushButton("Kalibrer Gyro")
-        self._btn_gyro.clicked.connect(self._on_cal_gyro)
-        btn_row.addWidget(self._btn_gyro)
-        btn_row.addStretch()
-
-        cl.addLayout(btn_row)
+        self._cal_panel = _NavigableCalibButton()
+        self._cal_panel.cal_requested.connect(self._on_cal_gyro)
+        self._btn_gyro = self._cal_panel.btn  # brukt av _start_calibration
+        cl.addWidget(self._cal_panel)
 
         self._cal_status = QLabel("")
         self._cal_status.setStyleSheet("font-size: 10px; color: #4a9a3c;")
@@ -231,6 +258,10 @@ class ImuTab(QWidget):
             color = "#c53434"
         self._cal_status.setText(msg)
         self._cal_status.setStyleSheet(f"font-size: 10px; color: {color};")
+
+    def get_navigables(self) -> list:
+        """Kalibreringspanel for FocusManager."""
+        return [self._cal_panel]
 
     def update_from_snapshot(self, snapshot: StateSnapshot) -> None:
         """Oppdater grafer og verdier fra snapshot."""

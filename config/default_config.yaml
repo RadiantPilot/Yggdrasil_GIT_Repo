@@ -154,7 +154,7 @@ safety_config:
 #   mock: brukes med --mock-flagget; tastatur-piler styrer da GUI-et.
 button_config:
   enabled: true
-  backend: gpio                # gpio | i2c | mock
+  backend: i2c                 # gpio | i2c | mock
   poll_hz: 50.0
   debounce_ms: 20.0
   long_press_ms: 1000.0        # >1 s på midt-knappen utløser E-STOP
