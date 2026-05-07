@@ -61,6 +61,11 @@ Husk å sette Pin 18 lav, for å skru av OE pinnen til PWM kortet.
 pinctrl set 18 op dl
 ```
 
+Hvis du vil bruke en annen branch:
+```bash
+git switch <Hvor du vil>
+```
+
 ---
 
 ## Testing
