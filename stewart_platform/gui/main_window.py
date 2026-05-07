@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._btn_theme)
 
         self._lbl_mode = QLabel("Modus: —")
+        self._lbl_mode.setMinimumWidth(180)
         self._lbl_mode.setStyleSheet("color: #666; padding: 0 12px;")
         layout.addWidget(self._lbl_mode)
 
@@ -126,10 +127,8 @@ class MainWindow(QMainWindow):
 
         bar.addWidget(container)
 
-        # Oppdater modus-etiketten med en gang
-        self._lbl_mode.setText(
-            "Modus: SIMULERT" if self._bridge.is_mock else "Modus: HARDWARE"
-        )
+        self._mode_prefix = "SIMULERT" if self._bridge.is_mock else "HARDWARE"
+        self._lbl_mode.setText(f"Modus: {self._mode_prefix} — stoppet")
 
     def _build_tabs(self) -> None:
         """Bygger QTabWidget med de 5 hovedtabbene."""
@@ -216,6 +215,7 @@ class MainWindow(QMainWindow):
 
         self._last_snapshot = snapshot
         self._lbl_rate.setText(f"{snapshot.loop_frequency_hz:5.1f} Hz")
+        self._update_mode_label(snapshot)
 
         current = self._tabs.currentWidget()
         if hasattr(current, "update_from_snapshot"):
@@ -274,6 +274,17 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Tema: {'mørk' if new_theme.name == 'dark' else 'lys'}", 2000,
         )
+
+    def _update_mode_label(self, snapshot: StateSnapshot) -> None:
+        """Oppdater modus-label med kjørestatus fra snapshot."""
+        if snapshot.is_e_stopped:
+            status, color = "E-STOP", "#c53434"
+        elif snapshot.is_running:
+            status, color = "kjører", "#4a9a3c"
+        else:
+            status, color = "stoppet", "#888"
+        self._lbl_mode.setText(f"Modus: {self._mode_prefix} — {status}")
+        self._lbl_mode.setStyleSheet(f"color: {color}; padding: 0 12px;")
 
     def _update_theme_button_label(self) -> None:
         """Sett label som antyder hva klikk vil gjøre."""

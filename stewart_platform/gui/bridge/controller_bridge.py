@@ -90,6 +90,7 @@ class ControllerBridge(QObject):
 
         # Hendelseslogg — brukes av overview og safety tabs
         self._events: deque[BridgeEvent] = deque(maxlen=100)
+        self._events_lock = threading.Lock()
 
         # Mock-tilstand — kun brukt når self._mock er True
         self._mock_running = False
@@ -432,14 +433,15 @@ class ControllerBridge(QObject):
     # ------------------------------------------------------------------
 
     def _log_event(self, level: str, message: str) -> None:
-        """Logg en intern hendelse."""
-        self._events.appendleft(BridgeEvent(
-            timestamp=time.time(), level=level, message=message,
-        ))
+        """Logg en intern hendelse. Trådtrygg — kalles fra kontroll- og GUI-tråd."""
+        event = BridgeEvent(timestamp=time.time(), level=level, message=message)
+        with self._events_lock:
+            self._events.appendleft(event)
 
     def get_events(self) -> List[BridgeEvent]:
-        """Hent siste hendelser (nyeste først)."""
-        return list(self._events)
+        """Hent siste hendelser (nyeste først). Trådtrygg."""
+        with self._events_lock:
+            return list(self._events)
 
     # ------------------------------------------------------------------
     # Konfigurasjon

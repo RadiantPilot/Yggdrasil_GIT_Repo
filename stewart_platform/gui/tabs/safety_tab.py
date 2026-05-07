@@ -117,7 +117,6 @@ class SafetyTab(QWidget):
             ("max_rotation_deg", "Maks rotasjon (°)", 1.0, 90.0, 1.0),
             ("max_angular_velocity_deg_per_s", "Maks vinkelhastighet (°/s)", 1.0, 360.0, 5.0),
             ("servo_angle_margin_deg", "Servomargin (°)", 0.0, 30.0, 0.5),
-            ("watchdog_timeout_s", "Watchdog timeout (s)", 0.1, 10.0, 0.1),
             ("imu_fault_threshold_g", "IMU-terskel (g)", 0.5, 20.0, 0.5),
         ]
         for i, (key, label, mn, mx, step) in enumerate(limit_fields):
@@ -127,9 +126,6 @@ class SafetyTab(QWidget):
             spin.setSingleStep(step)
             spin.setDecimals(1)
             spin.setFixedWidth(90)
-            if key == "watchdog_timeout_s":
-                spin.setEnabled(False)
-                spin.setToolTip("Ikke implementert — reservert for fremtidig bruk")
             lg.addWidget(spin, i, 1)
             self._limit_spins[key] = spin
 
@@ -158,7 +154,6 @@ class SafetyTab(QWidget):
         self._limit_spins["max_rotation_deg"].setValue(cfg.max_rotation_deg)
         self._limit_spins["max_angular_velocity_deg_per_s"].setValue(cfg.max_angular_velocity_deg_per_s)
         self._limit_spins["servo_angle_margin_deg"].setValue(cfg.servo_angle_margin_deg)
-        self._limit_spins["watchdog_timeout_s"].setValue(cfg.watchdog_timeout_s)
         self._limit_spins["imu_fault_threshold_g"].setValue(cfg.imu_fault_threshold_g)
 
     @Slot()
@@ -174,11 +169,12 @@ class SafetyTab(QWidget):
     @Slot()
     def _on_apply_limits(self) -> None:
         """Bruk nye sikkerhetsgrenser."""
+        cfg = self._bridge.config.safety_config
         new_config = SafetyConfig(
             max_rotation_deg=self._limit_spins["max_rotation_deg"].value(),
             max_angular_velocity_deg_per_s=self._limit_spins["max_angular_velocity_deg_per_s"].value(),
             servo_angle_margin_deg=self._limit_spins["servo_angle_margin_deg"].value(),
-            watchdog_timeout_s=self._limit_spins["watchdog_timeout_s"].value(),
+            watchdog_timeout_s=cfg.watchdog_timeout_s,
             imu_fault_threshold_g=self._limit_spins["imu_fault_threshold_g"].value(),
         )
         self._bridge.update_safety_limits(new_config)

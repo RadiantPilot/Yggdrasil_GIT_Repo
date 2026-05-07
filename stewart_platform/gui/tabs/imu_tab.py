@@ -198,16 +198,21 @@ class ImuTab(QWidget):
 
     @Slot(str, object, bool)
     def _on_cal_done(self, name: str, result: object, was_running: bool) -> None:
-        self._btn_gyro.setEnabled(True)
-        self._show_cal_result(name, result)
-        if result is CalibrationResult.OK and was_running:
-            ans = QMessageBox.question(
-                self,
-                "Start sløyfen igjen?",
-                f"{name}-kalibrering fullført. Sløyfen ble stoppet.\n\nVil du starte kontrollsløyfen igjen?",
-            )
-            if ans == QMessageBox.StandardButton.Yes:
-                self._bridge.request_start()
+        try:
+            self._btn_gyro.setEnabled(True)
+            self._show_cal_result(name, result)
+            if result is CalibrationResult.OK and was_running:
+                ans = QMessageBox.question(
+                    self,
+                    "Start sløyfen igjen?",
+                    f"{name}-kalibrering fullført. Sløyfen ble stoppet.\n\nVil du starte kontrollsløyfen igjen?",
+                )
+                if ans == QMessageBox.StandardButton.Yes:
+                    self._bridge.request_start()
+        except Exception as exc:
+            self._cal_status.setText(f"Feil i kalibrerings-tilbakemelding: {exc}")
+            self._cal_status.setStyleSheet("font-size: 10px; color: #c53434;")
+            self._btn_gyro.setEnabled(True)
 
     def _show_cal_result(self, name: str, result: CalibrationResult) -> None:
         """Vis resultat av kalibrering med farge som matcher utfallet."""

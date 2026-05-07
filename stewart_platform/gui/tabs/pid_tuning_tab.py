@@ -32,11 +32,11 @@ from ..widgets.pid_card import PidCard
 from ..widgets.realtime_plot import RealtimePlot
 
 
-# (Akse, navn, kp_max, ki_max, kd_max, slider_min, slider_max)
+# (Akse, navn, kp_max, ki_max, kd_max)
 # Yaw er bevisst utelatt — plattformen holder seg vannrett via roll/pitch kun.
 _AXES = [
-    (Axis.ROLL,  "Roll",  5.0, 2.0, 0.5, -20.0, 20.0),
-    (Axis.PITCH, "Pitch", 5.0, 2.0, 0.5, -20.0, 20.0),
+    (Axis.ROLL,  "Roll",  5.0, 2.0, 0.5),
+    (Axis.PITCH, "Pitch", 5.0, 2.0, 0.5),
 ]
 
 
@@ -45,7 +45,7 @@ class _RotationSliders(QWidget):
 
     rotation_changed = Signal(object)  # Vector3
 
-    def __init__(self) -> None:
+    def __init__(self, max_rotation_deg: float = 20.0) -> None:
         super().__init__()
         self._sliders: list[QSlider] = []
         self._spins: list[QDoubleSpinBox] = []
@@ -60,7 +60,8 @@ class _RotationSliders(QWidget):
             lbl.setStyleSheet("font-size: 10px; color: #888;")
             grid.addWidget(lbl, 0, col)
 
-        for i, (_, name, *_, mn, mx) in enumerate(_AXES):
+        mn, mx = -max_rotation_deg, max_rotation_deg
+        for i, (_, name, *_) in enumerate(_AXES):
             row = i + 1
             lbl = QLabel(f"{name} (°)")
             lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
@@ -93,6 +94,14 @@ class _RotationSliders(QWidget):
             grid.addWidget(cur, row, 3)
 
         self._current_labels = [grid.itemAtPosition(i + 1, 3).widget() for i in range(2)]
+
+    def update_rotation_range(self, max_rotation_deg: float) -> None:
+        """Oppdater slider- og spinbox-grenser når safety-config endres."""
+        mn, mx = -max_rotation_deg, max_rotation_deg
+        for slider in self._sliders:
+            slider.setRange(int(mn * 100), int(mx * 100))
+        for spin in self._spins:
+            spin.setRange(mn, mx)
 
     def _on_slider(self, value: int) -> None:
         if self._updating:
@@ -191,6 +200,7 @@ class PidTuningTab(QWidget):
         self._build_ui()
         self._load_gains_from_bridge()
         self._bridge.target_pose_changed.connect(self._on_external_target_pose)
+        self._bridge.config_changed.connect(self._on_config_changed)
 
     def _build_ui(self) -> None:
         root = QHBoxLayout(self)
@@ -215,7 +225,8 @@ class PidTuningTab(QWidget):
 
         target_box = QGroupBox("Mål-orientering")
         tl = QVBoxLayout(target_box)
-        self._sliders = _RotationSliders()
+        max_rot = self._bridge.config.safety_config.max_rotation_deg
+        self._sliders = _RotationSliders(max_rotation_deg=max_rot)
         self._sliders.rotation_changed.connect(self._on_target_changed)
         tl.addWidget(self._sliders)
 
@@ -306,6 +317,12 @@ class PidTuningTab(QWidget):
     @Slot(object)
     def _on_external_target_pose(self, pose: Pose) -> None:
         self._sliders.set_target(pose.rotation)
+
+    @Slot(object)
+    def _on_config_changed(self, config: object) -> None:
+        from ...config.platform_config import PlatformConfig
+        if isinstance(config, PlatformConfig):
+            self._sliders.update_rotation_range(config.safety_config.max_rotation_deg)
 
     # ------------------------------------------------------------------
     # Presets / kontroller

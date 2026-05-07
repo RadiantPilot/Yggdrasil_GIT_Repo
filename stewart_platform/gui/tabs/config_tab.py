@@ -24,6 +24,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+# Servo-tabelldefinisjon: (kolonne-indeks, label, widget-type, min, max, step, desimaler)
+# direction er enten +1 eller -1 — bruk QSpinBox med step 2 og snap til oddetall.
+_SERVO_COLS: list[tuple[str, str, float, float, float, int]] = [
+    ("Kanal",         "int",   0,    15,    1,    0),
+    ("Min puls (µs)", "int",   500,  2500,  10,   0),
+    ("Maks puls (µs)","int",   500,  2500,  10,   0),
+    ("Min vinkel (°)","float", -180, 180,   0.5,  1),
+    ("Maks vinkel (°)","float",-180, 180,   0.5,  1),
+    ("Home (°)",      "float", -180, 180,   0.5,  1),
+    ("Retning",       "int",   -1,   1,     2,    0),
+    ("Offset (°)",    "float", -90,  90,    0.5,  1),
+]
+
 from ...config.platform_config import PlatformConfig, ServoConfig
 from ..bridge.controller_bridge import ControllerBridge
 from ..bridge.state_snapshot import StateSnapshot
@@ -111,18 +124,30 @@ class ConfigTab(QWidget):
         servo_box = QGroupBox("Servokonfigurasjon (6 servoer)")
         stl = QVBoxLayout(servo_box)
 
-        self._servo_table = QTableWidget(6, 8)
-        self._servo_table.setHorizontalHeaderLabels([
-            "Kanal", "Min puls (µs)", "Maks puls (µs)",
-            "Min vinkel (°)", "Maks vinkel (°)", "Home (°)",
-            "Retning", "Offset (°)",
-        ])
+        col_labels = [c[0] for c in _SERVO_COLS]
+        self._servo_table = QTableWidget(6, len(_SERVO_COLS))
+        self._servo_table.setHorizontalHeaderLabels(col_labels)
         header = self._servo_table.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(QHeaderView.Stretch)
 
         for i in range(6):
             self._servo_table.setVerticalHeaderItem(i, QTableWidgetItem(f"S{i + 1}"))
+
+        # Fyll tabellen med spinbox-widgets for in-cell validering
+        for row in range(6):
+            for col, (_, wtype, mn, mx, step, decimals) in enumerate(_SERVO_COLS):
+                if wtype == "int":
+                    spin: QSpinBox | QDoubleSpinBox = QSpinBox()
+                    spin.setRange(int(mn), int(mx))
+                    spin.setSingleStep(int(step))
+                else:
+                    spin = QDoubleSpinBox()
+                    spin.setRange(mn, mx)
+                    spin.setSingleStep(step)
+                    spin.setDecimals(decimals)
+                spin.setFrame(False)
+                self._servo_table.setCellWidget(row, col, spin)
 
         stl.addWidget(self._servo_table)
         root.addWidget(servo_box, 1)
@@ -185,9 +210,9 @@ class ConfigTab(QWidget):
                 sc.direction, sc.offset_deg,
             ]
             for j, v in enumerate(vals):
-                item = QTableWidgetItem(str(v))
-                item.setTextAlignment(Qt.AlignCenter)
-                self._servo_table.setItem(i, j, item)
+                widget = self._servo_table.cellWidget(i, j)
+                if widget is not None:
+                    widget.setValue(v)
 
     def _build_config_from_ui(self) -> PlatformConfig:
         """Bygg PlatformConfig fra UI-verdier."""
@@ -204,22 +229,22 @@ class ConfigTab(QWidget):
             control_loop_rate_hz=self._rate_spin.value(),
         )
 
-        # Les servoer fra tabell
+        # Les servoer fra tabell via spinbox-widgets
         servos = []
         for i in range(6):
-            def cell(row: int, col: int) -> str:
-                item = self._servo_table.item(row, col)
-                return item.text() if item else "0"
+            def cell_val(row: int, col: int) -> float:
+                widget = self._servo_table.cellWidget(row, col)
+                return widget.value() if widget is not None else 0.0
 
             servos.append(ServoConfig(
-                channel=int(cell(i, 0)),
-                min_pulse_us=int(cell(i, 1)),
-                max_pulse_us=int(cell(i, 2)),
-                min_angle_deg=float(cell(i, 3)),
-                max_angle_deg=float(cell(i, 4)),
-                home_angle_deg=float(cell(i, 5)),
-                direction=int(cell(i, 6)),
-                offset_deg=float(cell(i, 7)),
+                channel=int(cell_val(i, 0)),
+                min_pulse_us=int(cell_val(i, 1)),
+                max_pulse_us=int(cell_val(i, 2)),
+                min_angle_deg=float(cell_val(i, 3)),
+                max_angle_deg=float(cell_val(i, 4)),
+                home_angle_deg=float(cell_val(i, 5)),
+                direction=int(cell_val(i, 6)),
+                offset_deg=float(cell_val(i, 7)),
             ))
         cfg.servo_configs = servos
 
