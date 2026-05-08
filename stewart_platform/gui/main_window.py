@@ -287,7 +287,7 @@ class MainWindow(QMainWindow):
         if self._bridge.is_frozen:
             self._bridge.request_unfreeze()
             self.statusBar().showMessage(
-                "Frigitt — kontrollsløyfen restartet, holder toppplaten vannrett.", 5000
+                "Frigitt — kontrollsløyfen restartet, holder innstilt posisjon.", 5000
             )
         else:
             self._bridge.request_freeze()

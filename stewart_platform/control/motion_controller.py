@@ -207,6 +207,16 @@ class MotionController:
                 return False
         with self._lock:
             self._target_pose = pose
+            frozen = self._is_frozen
+        # Under frys kjører ikke kontrollsløyfen. Send target direkte til
+        # servoene via IK slik at brukeren kan justere posisjon med slidere.
+        if frozen and self._servo_array is not None and self._ik_solver is not None:
+            try:
+                angles = self._ik_solver.solve(pose)
+                self._servo_array.set_angles_slewed(angles, 1.0 / self._loop_rate_hz)
+                self._last_valid_angles = list(angles)
+            except (ValueError, Exception):
+                pass
         return True
 
     def home(self) -> None:
@@ -232,10 +242,11 @@ class MotionController:
         self.stop()
 
     def unfreeze(self) -> None:
-        """Start kontrollsløyfen igjen med mål-pose (0,0,0) — hold toppplaten vannrett.
+        """Gjenoppta kontrollsløyfen fra nåværende servoposisjon.
 
-        Starter UTEN homing-sekvens slik at servoene beholder sin nåværende
-        posisjon. IMU-fusjon og PID-integratorer nullstilles for ren start.
+        Starter UTEN homing-sekvens og UTEN å overskrive target_pose —
+        systemet fortsetter å holde posisjonen brukeren satte under frys.
+        IMU-fusjon og PID beholdes for å unngå transiente hopp.
         """
         if self._servo_array is None:
             return
@@ -245,13 +256,6 @@ class MotionController:
             return
         with self._lock:
             self._is_frozen = False
-            self._target_pose = Pose.home()
-            self._current_pose = Pose.home()
-            self._last_orientation = Pose.home().rotation
-        if self._imu_fusion is not None:
-            self._imu_fusion.reset()
-        if self._pose_controller is not None:
-            self._pose_controller.reset()
         self._last_step_time = None
         self._stop_event.clear()
         self._thread = threading.Thread(

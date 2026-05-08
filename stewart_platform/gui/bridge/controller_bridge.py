@@ -342,16 +342,15 @@ class ControllerBridge(QObject):
             self._log_event("INFO", "Plattform fryst")
 
     def request_unfreeze(self) -> None:
-        """Frigitt: restart sløyfen med mål-pose (0,0,0) — hold toppplaten vannrett."""
+        """Gjenoppta kontrollsløyfen — holder posisjonen satt under frys."""
         if self._mock:
             self._mock_frozen = False
             self._mock_running = True
-            self._mock_target_pose = Pose.home()
-            self._log_event("INFO", "Plattform frigitt — holder toppplaten vannrett")
+            self._log_event("INFO", "Plattform frigitt — holder innstilt posisjon")
             return
         if self._controller is not None:
             self._controller.unfreeze()
-            self._log_event("INFO", "Plattform frigitt — holder toppplaten vannrett")
+            self._log_event("INFO", "Plattform frigitt — holder innstilt posisjon")
 
     @property
     def is_frozen(self) -> bool:
