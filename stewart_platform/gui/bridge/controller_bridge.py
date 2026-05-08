@@ -94,6 +94,7 @@ class ControllerBridge(QObject):
 
         # Mock-tilstand — kun brukt når self._mock er True
         self._mock_running = False
+        self._mock_frozen = False
         self._mock_e_stopped = False
         self._mock_e_stop_reason: Optional[str] = None
         self._mock_target_pose = Pose.home()
@@ -212,6 +213,7 @@ class ControllerBridge(QObject):
             timestamp=time.time(),
             loop_frequency_hz=freq,
             is_running=ctl.is_running(),
+            is_frozen=ctl.is_frozen,
             is_e_stopped=safety.is_e_stopped() if safety else False,
             e_stop_reason=safety.e_stop_reason if safety else None,
             current_pose=ctl.get_current_pose(),
@@ -269,6 +271,7 @@ class ControllerBridge(QObject):
             timestamp=time.time(),
             loop_frequency_hz=freq,
             is_running=self._mock_running,
+            is_frozen=self._mock_frozen,
             is_e_stopped=self._mock_e_stopped,
             e_stop_reason=self._mock_e_stop_reason,
             current_pose=current,
@@ -326,6 +329,37 @@ class ControllerBridge(QObject):
             # MotionController.home() oppdaterer selv _target_pose. Vi
             # emitterer signalet her slik at GUI-widgets kan synkroniseres.
             self.target_pose_changed.emit(home_pose)
+
+    def request_freeze(self) -> None:
+        """Frys plattformen: stopp sløyfe, hold servoer med PWM."""
+        if self._mock:
+            self._mock_frozen = True
+            self._mock_running = False
+            self._log_event("INFO", "Plattform fryst")
+            return
+        if self._controller is not None:
+            self._controller.freeze()
+            self._log_event("INFO", "Plattform fryst")
+
+    def request_unfreeze(self) -> None:
+        """Frigitt: restart sløyfen med mål-pose (0,0,0) — hold toppplaten vannrett."""
+        if self._mock:
+            self._mock_frozen = False
+            self._mock_running = True
+            self._mock_target_pose = Pose.home()
+            self._log_event("INFO", "Plattform frigitt — holder toppplaten vannrett")
+            return
+        if self._controller is not None:
+            self._controller.unfreeze()
+            self._log_event("INFO", "Plattform frigitt — holder toppplaten vannrett")
+
+    @property
+    def is_frozen(self) -> bool:
+        if self._mock:
+            return self._mock_frozen
+        if self._controller is not None:
+            return self._controller.is_frozen
+        return False
 
     def set_target_pose(self, pose: Pose) -> bool:
         if self._mock:

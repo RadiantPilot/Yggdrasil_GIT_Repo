@@ -28,6 +28,7 @@ class StateSnapshot:
     timestamp: float = 0.0
     loop_frequency_hz: float = 0.0
     is_running: bool = False
+    is_frozen: bool = False
     is_e_stopped: bool = False
     e_stop_reason: Optional[str] = None
 

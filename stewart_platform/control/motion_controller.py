@@ -119,6 +119,7 @@ class MotionController:
         # None frem til første kall; resettes til None av stop() slik at
         # første step() etter restart bruker nominell dt.
         self._last_step_time: Optional[float] = None
+        self._is_frozen: bool = False
 
     def initialize(self) -> None:
         """Initialiser all maskinvare og gå til hjemmeposisjon.
@@ -219,6 +220,28 @@ class MotionController:
             self._target_pose = Pose.home()
         if self._servo_array is not None and not self.is_running():
             self._go_to_ik_home()
+
+    def freeze(self) -> None:
+        """Stopp kontrollsløyfen og hold servovinkler via PWM (fryst tilstand).
+
+        Servoene forblir strømsatt på siste kommanderte vinkel.
+        Kall unfreeze() for å starte sløyfen igjen med target = vannrett.
+        """
+        with self._lock:
+            self._is_frozen = True
+        self.stop()
+
+    def unfreeze(self) -> None:
+        """Start kontrollsløyfen igjen med mål-pose (0,0,0) — hold toppplaten vannrett."""
+        with self._lock:
+            self._is_frozen = False
+        self.home()
+        self.start()
+
+    @property
+    def is_frozen(self) -> bool:
+        with self._lock:
+            return self._is_frozen
 
     def _go_to_ik_home(self) -> None:
         """Flytt servoene til IK-beregnet hjemposisjon.

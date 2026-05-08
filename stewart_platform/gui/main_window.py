@@ -81,20 +81,31 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
 
         self._btn_start = QPushButton("▶ Start")
+        self._btn_start.setToolTip("Start kontrollsløyfen (F5)")
         self._btn_start.clicked.connect(self._on_start_clicked)
         layout.addWidget(self._btn_start)
 
         self._btn_stop = QPushButton("■ Stopp")
+        self._btn_stop.setToolTip("Stopp kontrollsløyfen (F6)")
         self._btn_stop.clicked.connect(self._on_stop_clicked)
         layout.addWidget(self._btn_stop)
 
         self._btn_home = QPushButton("⌂ Home")
         self._btn_home.setToolTip(
             "Sett mål-pose til hvilestilling (0,0,0) og be servoene "
-            "kjøre til home-vinkel fra config."
+            "kjøre til home-vinkel fra config. (F7)"
         )
         self._btn_home.clicked.connect(self._on_home_clicked)
         layout.addWidget(self._btn_home)
+
+        self._btn_freeze = QPushButton("❄ Frys")
+        self._btn_freeze.setToolTip(
+            "Frys plattformen på nåværende posisjon (F8). "
+            "Trykk igjen for å starte kontrollsløyfen og holde toppplaten vannrett."
+        )
+        self._btn_freeze.setCheckable(True)
+        self._btn_freeze.clicked.connect(self._on_freeze_clicked)
+        layout.addWidget(self._btn_freeze)
 
         layout.addStretch()
 
@@ -184,6 +195,12 @@ class MainWindow(QMainWindow):
             lambda: self._focus_manager.on_long_pressed(int(ButtonId.CENTER))
         )
 
+        # F5/F6/F7/F8 = Start / Stopp / Hjem / Frys (speiler toolbar-knappene)
+        QShortcut(QKeySequence("F5"), self).activated.connect(self._on_start_clicked)
+        QShortcut(QKeySequence("F6"), self).activated.connect(self._on_stop_clicked)
+        QShortcut(QKeySequence("F7"), self).activated.connect(self._on_home_clicked)
+        QShortcut(QKeySequence("F8"), self).activated.connect(self._on_freeze_clicked)
+
     def _install_focus_manager(self) -> None:
         """Bygg FocusManager og registrer Navigables fra hver tab."""
         self._focus_manager = FocusManager(
@@ -266,6 +283,19 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Home-kommando sendt — mål-pose satt til (0,0,0).", 3000)
 
     @Slot()
+    def _on_freeze_clicked(self) -> None:
+        if self._bridge.is_frozen:
+            self._bridge.request_unfreeze()
+            self.statusBar().showMessage(
+                "Frigitt — kontrollsløyfen restartet, holder toppplaten vannrett.", 5000
+            )
+        else:
+            self._bridge.request_freeze()
+            self.statusBar().showMessage(
+                "Fryst — servoer holder posisjon. Posisjoner toppplaten, trykk F8 igjen.", 5000
+            )
+
+    @Slot()
     def _on_theme_toggle(self) -> None:
         """Bytt mellom lys og mørk modus."""
         new_theme = ThemeManager.instance().toggle()
@@ -279,12 +309,24 @@ class MainWindow(QMainWindow):
         """Oppdater modus-label med kjørestatus fra snapshot."""
         if snapshot.is_e_stopped:
             status, color = "E-STOP", "#c53434"
+        elif snapshot.is_frozen:
+            status, color = "fryst", "#1565C0"
         elif snapshot.is_running:
             status, color = "kjører", "#4a9a3c"
         else:
             status, color = "stoppet", "#888"
         self._lbl_mode.setText(f"Modus: {self._mode_prefix} — {status}")
         self._lbl_mode.setStyleSheet(f"color: {color}; padding: 0 12px;")
+
+        frozen = snapshot.is_frozen
+        self._btn_freeze.setChecked(frozen)
+        self._btn_freeze.setText("❄ Frigitt" if frozen else "❄ Frys")
+        if frozen:
+            self._btn_freeze.setStyleSheet(
+                "QPushButton { background-color: #1565C0; color: white; font-weight: bold; }"
+            )
+        else:
+            self._btn_freeze.setStyleSheet("")
 
     def _update_theme_button_label(self) -> None:
         """Sett label som antyder hva klikk vil gjøre."""
