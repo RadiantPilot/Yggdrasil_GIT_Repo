@@ -232,11 +232,32 @@ class MotionController:
         self.stop()
 
     def unfreeze(self) -> None:
-        """Start kontrollsløyfen igjen med mål-pose (0,0,0) — hold toppplaten vannrett."""
+        """Start kontrollsløyfen igjen med mål-pose (0,0,0) — hold toppplaten vannrett.
+
+        Starter UTEN homing-sekvens slik at servoene beholder sin nåværende
+        posisjon. IMU-fusjon og PID-integratorer nullstilles for ren start.
+        """
+        if self._servo_array is None:
+            return
+        if self._safety_monitor is not None and self._safety_monitor.is_e_stopped():
+            return
+        if self._thread is not None and self._thread.is_alive():
+            return
         with self._lock:
             self._is_frozen = False
-        self.home()
-        self.start()
+            self._target_pose = Pose.home()
+            self._current_pose = Pose.home()
+            self._last_orientation = Pose.home().rotation
+        if self._imu_fusion is not None:
+            self._imu_fusion.reset()
+        if self._pose_controller is not None:
+            self._pose_controller.reset()
+        self._last_step_time = None
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run, name="motion-loop", daemon=True
+        )
+        self._thread.start()
 
     @property
     def is_frozen(self) -> bool:
