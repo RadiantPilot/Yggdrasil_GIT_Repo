@@ -258,9 +258,8 @@ class _NavigableServoTable(QWidget):
         if edit:
             self._highlight()
         else:
-            # Tilbake til rad-fokus etter edit-modus
             self._active_col = 0
-            self._highlight()
+            # Highlight-tilstand styres av set_focused() — ikke rør den her
 
     def nav_vertical(self, delta: int) -> None:
         if self._in_edit:
