@@ -12,7 +12,22 @@
 i2c_bus_number: 1
 pca9685_address: 0x40          # PCA9685 PWM-driver (standard: 0x40)
 pca9685_frequency: 50          # Hz - standard for servoer (20 ms periode)
-lsm6dsox_address: 0x6A         # LSM6DSOXTR IMU på bunnplaten
+
+# Bunnplate-IMU: LSM9DS1 (9DOF — akselerometer + gyroskop + magnetometer).
+# address: I2C for akselerometer/gyroskop (SA0=lav → 0x6A, SA0=høy → 0x6B).
+# mag_address: I2C for magnetometeret (SDO_M=lav → 0x1C, SDO_M=høy → 0x1E).
+# mounting_rotation_deg: [roll, pitch, yaw] offset for monteringsretning.
+base_imu:
+  address: 0x6A
+  mag_address: 0x1C
+  mounting_rotation_deg: [0.0, 0.0, 0.0]
+
+# Toppplate-IMU: LSM6DSOX (6DOF — akselerometer + gyroskop).
+# Montert på den bevegelige toppplaten for direkte plattformmåling.
+# SA0-pinnen MÅ settes høy (0x6B) for å unngå adressekollisjon med bunn-IMU.
+platform_imu:
+  address: 0x6B
+  mounting_rotation_deg: [0.0, 0.0, 0.0]
 
 # --- Plattformgeometri ---
 # Alle lengder i millimeter, alle vinkler i grader.

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from ..geometry.vector3 import Vector3
 
@@ -97,3 +98,16 @@ class IMUInterface(ABC):
         nøyaktig 1g og X/Y viser 0.
         """
         ...
+
+    def read_magnetic_field(self) -> Optional[Vector3]:
+        """Les magnetfeltdata fra sensoren.
+
+        Standard-implementasjon returnerer None — sensorer uten
+        magnetometer (f.eks. LSM6DSOX) trenger ikke å overstyre denne.
+        Sensorer med magnetometer (f.eks. LSM9DS1) overstyrer og
+        returnerer Vector3 med magnetfelt i µT for X, Y og Z-aksen.
+
+        Returns:
+            Vector3 med magnetfelt i µT, eller None hvis ikke støttet.
+        """
+        return None

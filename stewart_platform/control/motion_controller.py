@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from typing import Callable, List, Optional, TYPE_CHECKING
@@ -27,6 +28,31 @@ if TYPE_CHECKING:
     from ..servo.servo_array import ServoArray
     from .imu_fusion import IMUFusion
     from .pose_controller import PoseController
+
+
+def _apply_mounting_rotation(vec: Vector3, rotation_deg: List[float]) -> Vector3:
+    """Roter en vektor med en monteringsoffset (roll, pitch, yaw i grader).
+
+    Kompenserer for at en IMU er montert i en annen retning enn
+    plattformens koordinatsystem. Returnerer vektoren uendret hvis
+    alle rotasjonsvinkler er null (vanlig tilstand etter commissioning).
+
+    Rotasjonsrekkefølge: intrinsic XYZ (roll → pitch → yaw).
+    """
+    roll_deg, pitch_deg, yaw_deg = rotation_deg[0], rotation_deg[1], rotation_deg[2]
+    if roll_deg == 0.0 and pitch_deg == 0.0 and yaw_deg == 0.0:
+        return vec
+    r = math.radians(roll_deg)
+    p = math.radians(pitch_deg)
+    y = math.radians(yaw_deg)
+    cr, sr = math.cos(r), math.sin(r)
+    cp, sp = math.cos(p), math.sin(p)
+    cy, sy = math.cos(y), math.sin(y)
+    # Intrinsic XYZ rotasjonsmatrise: Rz * Ry * Rx
+    x = vec.x * (cp * cy) + vec.y * (sr * sp * cy - cr * sy) + vec.z * (cr * sp * cy + sr * sy)
+    nv_y = vec.x * (cp * sy) + vec.y * (sr * sp * sy + cr * cy) + vec.z * (cr * sp * sy - sr * cy)
+    z = vec.x * (-sp) + vec.y * (sr * cp) + vec.z * (cr * cp)
+    return Vector3(x, nv_y, z)
 
 
 # Callback-signatur for sikkerhetsbrudd som motion-loopen møter.
@@ -70,6 +96,7 @@ class MotionController:
         self._config = config
         self._servo_array: ServoArray | None = None
         self._base_imu: IMUInterface | None = None
+        self._platform_imu: IMUInterface | None = None
         self._ik_solver: InverseKinematics | None = None
         self._pose_controller: PoseController | None = None
         self._imu_fusion: IMUFusion | None = None
@@ -136,6 +163,7 @@ class MotionController:
         from ..hardware.i2c_bus import I2CBus
         from ..hardware.pca9685_driver import PCA9685Driver
         from ..hardware.lsm6dsox_driver import LSM6DSOXDriver
+        from ..hardware.lsm9ds1_driver import LSM9DS1Driver
         from ..kinematics.inverse_kinematics import InverseKinematics
         from ..safety.safety_monitor import SafetyMonitor
         from ..servo.servo_array import ServoArray
@@ -154,19 +182,39 @@ class MotionController:
         driver.reset()
         self._servo_array = ServoArray(cfg.servo_configs, driver)
 
-        # IMU-sensor (bunnplate)
-        self._base_imu = LSM6DSOXDriver(self._bus, cfg.lsm6dsox_address)
-        # Tilbakestill og konfigurer sensoren før bruk.
-        # Uten configure() kjører sensoren i power-down og gir 0-er.
-        # Kalibrering av gyroskop-bias krever at plattformen er helt stille
-        # de første ~0.5 sekundene etter oppstart.
+        # Bunn-IMU: LSM9DS1 (ny sensor på bunnplaten, stasjonær referanse)
+        self._base_imu = LSM9DS1Driver(
+            self._bus,
+            accel_gyro_address=cfg.base_imu.address,
+            mag_address=cfg.base_imu.mag_address,
+        )
         self._base_imu.reset()
         self._base_imu.configure()
+        # Kalibrér bunn-IMU mens plattform er i ro — bunnplaten er alltid stille.
         self._base_imu.calibrate_gyro_bias()
+        _logger.info("Bunn-IMU (LSM9DS1) WHO_AM_I: 0x%02X", self._base_imu.who_am_i())
 
-        # Geometri og kinematikk
+        # Geometri og kinematikk (trengs for å sende servoene til nøytral
+        # posisjon før topp-IMU kalibreres).
         geometry = PlatformGeometry(cfg)
         self._ik_solver = InverseKinematics(geometry, cfg.servo_configs)
+
+        # Sett servoane til nøytral posisjon slik at toppplaten er stille og
+        # horisontal under kalibrering av topp-IMU. Rekkefølgen er viktig:
+        # topp-IMU sitter på den bevegelige platen og MÅ kalibreres når platen
+        # er stille, ellers fanges plattformens initialposisjon som gyro-bias.
+        self._go_to_ik_home()
+
+        # Topp-IMU: LSM6DSOX (eksisterende sensor, nå montert på toppplaten)
+        self._platform_imu = LSM6DSOXDriver(
+            self._bus,
+            address=cfg.platform_imu.address,
+        )
+        self._platform_imu.reset()
+        self._platform_imu.configure()
+        # Topp-IMU kalibreres etter homing slik at plattformen er stille.
+        self._platform_imu.calibrate_gyro_bias()
+        _logger.info("Topp-IMU (LSM6DSOX) WHO_AM_I: 0x%02X", self._platform_imu.who_am_i())
 
         # Kontroll
         self._pose_controller = PoseController(cfg.pid_gains)
@@ -175,19 +223,18 @@ class MotionController:
         # Sikkerhet
         self._safety_monitor = SafetyMonitor(cfg.safety_config, cfg.servo_configs)
 
-        # Gå til hjemmeposisjon
-        self._go_to_ik_home()
-
         # Pre-fyll IMU-cache slik at GUI-polling kan lese fra cache fra
         # første tick — uten dette ville snapshot vise nuller helt til
         # brukeren trykker Start og kontroll-tråden begynner å kjøre.
-        if self._base_imu is not None and self._imu_fusion is not None:
-            accel = self._base_imu.read_acceleration()
-            gyro = self._base_imu.read_angular_velocity()
-            orient = self._imu_fusion.update(accel, gyro, 1.0 / self._loop_rate_hz)
+        if self._platform_imu is not None and self._imu_fusion is not None:
+            plat_accel = self._platform_imu.read_acceleration()
+            plat_gyro = self._platform_imu.read_angular_velocity()
+            plat_accel = _apply_mounting_rotation(plat_accel, cfg.platform_imu.mounting_rotation_deg)
+            plat_gyro = _apply_mounting_rotation(plat_gyro, cfg.platform_imu.mounting_rotation_deg)
+            orient = self._imu_fusion.update(plat_accel, plat_gyro, 1.0 / self._loop_rate_hz)
             with self._lock:
-                self._last_accel = accel
-                self._last_gyro = gyro
+                self._last_accel = plat_accel
+                self._last_gyro = plat_gyro
                 self._last_orientation = orient
 
     def set_target_pose(self, pose: Pose) -> bool:
@@ -427,19 +474,47 @@ class MotionController:
             dt = 1.0 / self._loop_rate_hz
         self._last_step_time = now
 
-        # 1-2: Les bunnplate-IMU og oppdater fusjon
-        if self._base_imu is not None and self._imu_fusion is not None:
-            accel = self._base_imu.read_acceleration()
-            gyro = self._base_imu.read_angular_velocity()
-            base_orientation = self._imu_fusion.update(accel, gyro, dt)
-            new_current = Pose(rotation=base_orientation)
-            with self._lock:
-                self._current_pose = new_current
-                self._last_accel = accel
-                self._last_gyro = gyro
-                self._last_orientation = base_orientation
-        else:
-            accel = Vector3(0.0, 0.0, 9.81)
+        # 1-2: Les IMU-data og oppdater fusjon.
+        # Topp-IMU (platform_imu) gir direkte måling av plattformens orientering.
+        # Ved feil faller vi tilbake til bunn-IMU for å beholde kontrollen.
+        cfg = self._config
+        accel = Vector3(0.0, 0.0, 9.81)
+        if self._imu_fusion is not None:
+            primary_accel: Optional[Vector3] = None
+            primary_gyro: Optional[Vector3] = None
+
+            if self._platform_imu is not None:
+                try:
+                    raw_a = self._platform_imu.read_acceleration()
+                    raw_g = self._platform_imu.read_angular_velocity()
+                    primary_accel = _apply_mounting_rotation(
+                        raw_a, cfg.platform_imu.mounting_rotation_deg
+                    )
+                    primary_gyro = _apply_mounting_rotation(
+                        raw_g, cfg.platform_imu.mounting_rotation_deg
+                    )
+                except Exception as exc:
+                    _logger.warning("Topp-IMU falt ut (%s) — bruker bunn-IMU som fallback", exc)
+
+            if primary_accel is None and self._base_imu is not None:
+                raw_a = self._base_imu.read_acceleration()
+                raw_g = self._base_imu.read_angular_velocity()
+                primary_accel = _apply_mounting_rotation(
+                    raw_a, cfg.base_imu.mounting_rotation_deg
+                )
+                primary_gyro = _apply_mounting_rotation(
+                    raw_g, cfg.base_imu.mounting_rotation_deg
+                )
+
+            if primary_accel is not None and primary_gyro is not None:
+                orientation = self._imu_fusion.update(primary_accel, primary_gyro, dt)
+                accel = primary_accel
+                new_current = Pose(rotation=orientation)
+                with self._lock:
+                    self._current_pose = new_current
+                    self._last_accel = primary_accel
+                    self._last_gyro = primary_gyro
+                    self._last_orientation = orientation
 
         # Plukk ut delt tilstand under lock for å unngå at GUI-tråd
         # endrer mål-posen midt i en iterasjon.
@@ -592,12 +667,21 @@ class MotionController:
 
     @property
     def base_imu(self) -> IMUInterface | None:
-        """Hent bunnplate-IMU (LSM6DSOXTR) for GUI-avlesning.
+        """Hent bunnplate-IMU (LSM9DS1) for GUI-avlesning.
 
         Returns:
             IMUInterface eller None hvis ikke initialisert.
         """
         return self._base_imu
+
+    @property
+    def platform_imu(self) -> IMUInterface | None:
+        """Hent toppplate-IMU (LSM6DSOX) for GUI-avlesning.
+
+        Returns:
+            IMUInterface eller None hvis ikke initialisert.
+        """
+        return self._platform_imu
 
     @property
     def servo_array(self) -> ServoArray | None:
@@ -640,12 +724,23 @@ class MotionController:
         helt til Start trykkes. Det er trygt fordi det da ikke er
         noen annen tråd som rører I2C-bussen.
         """
-        if self.is_running() or self._base_imu is None:
+        imu_for_direct_read = self._platform_imu or self._base_imu
+        if self.is_running() or imu_for_direct_read is None:
             with self._lock:
                 return self._last_accel, self._last_gyro, self._last_orientation
 
-        accel = self._base_imu.read_acceleration()
-        gyro = self._base_imu.read_angular_velocity()
+        cfg = self._config
+        rotation_deg = (
+            cfg.platform_imu.mounting_rotation_deg
+            if self._platform_imu is not None
+            else cfg.base_imu.mounting_rotation_deg
+        )
+        accel = _apply_mounting_rotation(
+            imu_for_direct_read.read_acceleration(), rotation_deg
+        )
+        gyro = _apply_mounting_rotation(
+            imu_for_direct_read.read_angular_velocity(), rotation_deg
+        )
         if self._imu_fusion is not None:
             orient = self._imu_fusion.update(accel, gyro, 1.0 / self._loop_rate_hz)
         else:
@@ -680,6 +775,7 @@ class MotionController:
             self._servo_array.detach_all()
         self._servo_array = None
         self._base_imu = None
+        self._platform_imu = None
         self._ik_solver = None
         self._pose_controller = None
         self._imu_fusion = None

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -14,6 +15,31 @@ from typing import List, Optional
 import yaml
 
 from .button_config import ButtonConfig
+
+
+@dataclass
+class IMUConfig:
+    """Konfigurasjon for en enkelt IMU-sensor.
+
+    Brukes for å konfigurere I2C-adresser og monteringsretning for
+    hver IMU individuelt. mounting_rotation_deg angir en (roll, pitch, yaw)
+    rotasjonsoffset i grader som kompenserer for at sensoren er montert
+    i en annen retning enn plattformens koordinatsystem. Settes til
+    [0.0, 0.0, 0.0] som standard og justeres under commissioning.
+    """
+
+    # I2C-adresse for akselerometer/gyroskop (0x6A eller 0x6B).
+    address: int = 0x6A
+
+    # I2C-adresse for magnetometer — kun relevant for LSM9DS1 (0x1C eller 0x1E).
+    # For sensorer uten magnetometer (f.eks. LSM6DSOX) ignoreres denne verdien.
+    mag_address: int = 0x1C
+
+    # Monteringsrotasjon i grader [roll, pitch, yaw].
+    # Justeres under commissioning for å kompensere for ulik fysisk monteringsretning.
+    mounting_rotation_deg: List[float] = field(
+        default_factory=lambda: [0.0, 0.0, 0.0]
+    )
 
 
 class Axis(IntEnum):
@@ -160,8 +186,17 @@ class PlatformConfig:
     # PWM-frekvens for PCA9685 i Hz (50 Hz er standard for servoer).
     pca9685_frequency: int = 50
 
-    # I2C-adresse for LSM6DSOXTR IMU på bunnplaten.
-    lsm6dsox_address: int = 0x6A
+    # Konfigurasjon for bunnplate-IMU (LSM9DS1 — akselerometer + gyroskop + magnetometer).
+    base_imu: IMUConfig = field(
+        default_factory=lambda: IMUConfig(address=0x6A, mag_address=0x1C)
+    )
+
+    # Konfigurasjon for toppplate-IMU (LSM6DSOX — akselerometer + gyroskop).
+    # Brukes til direkte måling av plattformens orientering.
+    # SA0-pinnen må settes høy for 0x6B slik at den ikke kolliderer med bunn-IMU.
+    platform_imu: IMUConfig = field(
+        default_factory=lambda: IMUConfig(address=0x6B)
+    )
 
     # --- Plattformgeometri ---
 
@@ -247,6 +282,10 @@ class PlatformConfig:
         pid_gains_data = data.pop("pid_gains", None)
         safety_config_data = data.pop("safety_config", None)
         button_config_data = data.pop("button_config", None)
+        base_imu_data = data.pop("base_imu", None)
+        platform_imu_data = data.pop("platform_imu", None)
+        # Fjern utdatert felt fra eldre YAML-filer (bakoverkompatibilitet).
+        data.pop("lsm6dsox_address", None)
 
         config = cls(**data)
 
@@ -260,6 +299,10 @@ class PlatformConfig:
             config.safety_config = SafetyConfig(**safety_config_data)
         if button_config_data is not None:
             config.button_config = ButtonConfig(**button_config_data)
+        if base_imu_data is not None:
+            config.base_imu = IMUConfig(**base_imu_data)
+        if platform_imu_data is not None:
+            config.platform_imu = IMUConfig(**platform_imu_data)
 
         return config
 

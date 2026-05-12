@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import math
+from typing import Optional
 
 from ..geometry.vector3 import Vector3
 
@@ -42,7 +43,13 @@ class IMUFusion:
         self._alpha = alpha
         self._current_orientation = Vector3()
 
-    def update(self, accel: Vector3, gyro: Vector3, dt: float) -> Vector3:
+    def update(
+        self,
+        accel: Vector3,
+        gyro: Vector3,
+        dt: float,
+        mag: Optional[Vector3] = None,
+    ) -> Vector3:
         """Oppdater orienteringsestimatet med nye sensordata.
 
         Beregner roll og pitch fra akselerometeret (via atan2),
@@ -52,6 +59,8 @@ class IMUFusion:
             accel: Akselerasjonsdata i m/s² (X, Y, Z).
             gyro: Gyroskopdata i grader/s (X, Y, Z).
             dt: Tid siden forrige oppdatering i sekunder.
+            mag: Magnetfeltdata i µT (X, Y, Z), eller None hvis ikke tilgjengelig.
+                 Reservert for fremtidig tilt-kompensert yaw-estimering.
 
         Returns:
             Oppdatert orientering som Vector3 (roll, pitch, yaw) i grader.
@@ -69,8 +78,8 @@ class IMUFusion:
         # Komplementærfilter: kombiner akselerometer og gyroskop
         roll = self._alpha * gyro_roll + (1.0 - self._alpha) * accel_roll
         pitch = self._alpha * gyro_pitch + (1.0 - self._alpha) * accel_pitch
-        # Yaw kan ikke estimeres uten magnetometer og driver uansett over tid.
-        # Plattformen skal kun holde seg vannrett (roll/pitch) — yaw låses til 0.
+        # Yaw estimeres ikke ennå. mag-parameteren er klar for fremtidig
+        # tilt-kompensert kompassheading når magnetometer aktiveres.
         yaw = 0.0
 
         self._current_orientation = Vector3(roll, pitch, yaw)
