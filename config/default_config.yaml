@@ -27,7 +27,7 @@ base_imu:
 # SA0-pinnen MÅ settes høy (0x6B) for å unngå adressekollisjon med bunn-IMU.
 platform_imu:
   address: 0x6B
-  mounting_rotation_deg: [0.0, 0.0, 0.0]
+  mounting_rotation_deg: [180.0, 0.0, 0.0]
 
 # --- Plattformgeometri ---
 # Alle lengder i millimeter, alle vinkler i grader.

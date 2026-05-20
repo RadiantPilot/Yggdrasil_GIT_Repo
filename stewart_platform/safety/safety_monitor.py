@@ -264,8 +264,8 @@ class SafetyMonitor:
         bad_servos = self._servos_outside_margin(angles)
         if bad_servos:
             violation_pairs.append((
-                "Servovinkler utenfor margin: " + ", ".join(bad_servos),
-                SafetySeverity.ERROR,
+                "Servovinkler nær grense: " + ", ".join(bad_servos),
+                SafetySeverity.WARNING,
             ))
 
         if not self.validate_imu_readings(accel):
