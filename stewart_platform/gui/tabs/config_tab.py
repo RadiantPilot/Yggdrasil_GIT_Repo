@@ -40,7 +40,7 @@ _SERVO_COLS: list[tuple[str, str, float, float, float, int]] = [
 _HIGHLIGHT = "background: #f9d77e;"
 _ROW_FOCUS = "background: #e8f4f8;"
 
-from ...config.platform_config import PlatformConfig, ServoConfig
+from ...config.platform_config import IMUConfig, PlatformConfig, ServoConfig
 from ..bridge.controller_bridge import ControllerBridge
 from ..bridge.state_snapshot import StateSnapshot
 
@@ -128,7 +128,8 @@ class _NavigableI2CSpins(QWidget):
         ("i2c_bus_number",   "Buss-nummer",       0,    10),
         ("pca9685_address",  "PCA9685 adresse",   0,   127),
         ("pca9685_frequency","PWM frekvens (Hz)", 24,  1526),
-        ("lsm6dsox_address", "LSM6DSOX adresse",  0,   127),
+        ("base_imu_address",     "Bunn-IMU adresse",      0,   127),
+        ("platform_imu_address", "Topp-IMU adresse",      0,   127),
     ]
 
     def __init__(self) -> None:
@@ -469,7 +470,8 @@ class ConfigTab(QWidget):
         self._i2c_spins["i2c_bus_number"].setValue(cfg.i2c_bus_number)
         self._i2c_spins["pca9685_address"].setValue(cfg.pca9685_address)
         self._i2c_spins["pca9685_frequency"].setValue(cfg.pca9685_frequency)
-        self._i2c_spins["lsm6dsox_address"].setValue(cfg.lsm6dsox_address)
+        self._i2c_spins["base_imu_address"].setValue(cfg.base_imu.address)
+        self._i2c_spins["platform_imu_address"].setValue(cfg.platform_imu.address)
         self._rate_spin.setValue(cfg.control_loop_rate_hz)
 
         # Servo-tabell
@@ -495,7 +497,8 @@ class ConfigTab(QWidget):
             i2c_bus_number=self._i2c_spins["i2c_bus_number"].value(),
             pca9685_address=self._i2c_spins["pca9685_address"].value(),
             pca9685_frequency=self._i2c_spins["pca9685_frequency"].value(),
-            lsm6dsox_address=self._i2c_spins["lsm6dsox_address"].value(),
+            base_imu=IMUConfig(address=self._i2c_spins["base_imu_address"].value()),
+            platform_imu=IMUConfig(address=self._i2c_spins["platform_imu_address"].value()),
             control_loop_rate_hz=self._rate_spin.value(),
         )
 
