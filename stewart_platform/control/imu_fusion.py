@@ -93,6 +93,20 @@ class IMUFusion:
         """
         return self._current_orientation
 
+    def init_from_accel(self, accel: Vector3) -> None:
+        """Initialiser orienteringsestimatet direkte fra akselerometerdata.
+
+        Setter roll og pitch via atan2 på akselerometeret uten å vente på
+        filterkonvergens. Bør kalles ved oppstart etter homing slik at
+        kontrollsløyfen starter med korrekt referanse umiddelbart.
+
+        Args:
+            accel: Akselerasjonsdata i m/s² (X, Y, Z), allerede monterings-korrigert.
+        """
+        roll = math.degrees(math.atan2(accel.y, accel.z))
+        pitch = math.degrees(math.atan2(-accel.x, math.sqrt(accel.y ** 2 + accel.z ** 2)))
+        self._current_orientation = Vector3(roll, pitch, 0.0)
+
     def reset(self) -> None:
         """Nullstill orienteringsestimatet til (0, 0, 0).
 

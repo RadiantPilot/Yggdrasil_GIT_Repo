@@ -149,6 +149,7 @@ pid_gains:
 # Kontrollsløyfe-frekvens i Hz. Holdt lavt (25 Hz) for å gi
 # polling- og knapp-tråden god margin på I2C-locken på Pi 4B.
 control_loop_rate_hz: 25.0
+imu_fusion_alpha: 0.98          # Komplementærfilter-vekting (0=kun accel, 1=kun gyro)
 
 # --- Sikkerhetsgrenser ---
 # Plattformen styres kun rotasjonelt — translasjon-grenser er fjernet.

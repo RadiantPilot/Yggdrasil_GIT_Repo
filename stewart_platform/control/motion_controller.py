@@ -70,9 +70,10 @@ class MotionController:
     Orkestrerer hele kontrollsystemet i en sløyfe som kjører
     med konfigurerbar frekvens (control_loop_rate_hz):
 
-    1. Les akselerometer- og gyroskopdata fra bunnplate-IMU (LSM6DSOXTR).
-    2. Estimer bunnplatens orientering via IMUFusion.
-    3. Beregn kompensasjon via PoseController (PID) som motvirker bunnplatens tilt.
+    1. Les akselerometer- og gyroskopdata fra toppplate-IMU (LSM6DSOX, primær)
+       eller bunnplate-IMU (LSM9DS1, fallback ved feil).
+    2. Estimer toppplatens orientering via IMUFusion (komplementærfilter).
+    3. Beregn korreksjon via PoseController (PID) mot mål-pose (typisk vannrett).
     4. Løs invers kinematikk for å finne servovinkler.
     5. Valider sikkerhet via SafetyMonitor.
     6. Send servovinkler til ServoArray via PCA9685.
@@ -218,7 +219,7 @@ class MotionController:
 
         # Kontroll
         self._pose_controller = PoseController(cfg.pid_gains)
-        self._imu_fusion = IMUFusion()
+        self._imu_fusion = IMUFusion(alpha=cfg.imu_fusion_alpha)
 
         # Sikkerhet
         self._safety_monitor = SafetyMonitor(cfg.safety_config, cfg.servo_configs)
@@ -356,7 +357,20 @@ class MotionController:
         # Hjem-sekvens: gå til hjemposisjon og nullstill referanser
         self._go_to_ik_home()
         if self._imu_fusion is not None:
-            self._imu_fusion.reset()
+            # Initialiser filteret fra akselerometerets nåværende avlesning slik at
+            # kontrollsløyfen starter med korrekt orienteringsestimat umiddelbart,
+            # i stedet for å avvente filterkonvergens fra 0° (~4 sekunder ved alpha=0.98).
+            if self._platform_imu is not None:
+                try:
+                    raw_a = self._platform_imu.read_acceleration()
+                    initial_accel = _apply_mounting_rotation(
+                        raw_a, self._config.platform_imu.mounting_rotation_deg
+                    )
+                    self._imu_fusion.init_from_accel(initial_accel)
+                except Exception:
+                    self._imu_fusion.reset()
+            else:
+                self._imu_fusion.reset()
         if self._pose_controller is not None:
             self._pose_controller.reset()
         with self._lock:
@@ -693,10 +707,10 @@ class MotionController:
         return self._servo_array
 
     def get_current_pose(self) -> Pose:
-        """Hent estimert orientering for bunnplaten.
+        """Hent estimert orientering for toppplaten.
 
         Returns:
-            Estimert rotasjonspose basert på bunnplate-IMU-fusjon.
+            Estimert rotasjonspose basert på toppplate-IMU-fusjon.
         """
         with self._lock:
             return self._current_pose

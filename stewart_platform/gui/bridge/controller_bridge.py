@@ -617,17 +617,26 @@ class ControllerBridge(QObject):
         return CalibrationResult.OK, was_running
 
     def calibrate_accelerometer(self) -> CalibrationResult:
-        """Start akselerometer-kalibrering. Se calibrate_gyro() for retur."""
+        """Start akselerometer-kalibrering. Se calibrate_gyro() for retur.
+
+        Kalibrerer toppplate-IMU (primær sensor) og deretter bunnplate-IMU
+        om tilgjengelig. Plattformen MÅ være i ro og vannrett under kalibrering.
+        """
         if self._mock:
             self._log_event("INFO", "Akselerometer-kalibrering fullført (mock)")
             return CalibrationResult.OK
         if self._controller is None:
             return CalibrationResult.NOT_READY
-        imu = self._controller.base_imu
-        if imu is None:
+        # Primær sensor: toppplate-IMU. Bunnplate-IMU kalibreres som bonus.
+        platform_imu = self._controller.platform_imu
+        base_imu = self._controller.base_imu
+        if platform_imu is None and base_imu is None:
             return CalibrationResult.NOT_READY
         try:
-            imu.calibrate_accelerometer_offset()
+            if platform_imu is not None:
+                platform_imu.calibrate_accelerometer_offset()
+            if base_imu is not None:
+                base_imu.calibrate_accelerometer_offset()
         except NotImplementedError:
             self._log_event(
                 "WARN", "Akselerometer-kalibrering er ikke implementert i driveren",

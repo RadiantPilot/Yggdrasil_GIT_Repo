@@ -1,7 +1,7 @@
 # lsm6dsox_driver.py
 # ==================
 # Driver for LSM6DSOXTR IMU-sensor (akselerometer + gyroskop) over I2C.
-# Montert på bunnplaten for å måle bunnplatens orientering.
+# Montert på toppplaten for direkte måling av plattformens orientering.
 # Akselerometer-/gyroskopområde og datahastighet er konfigurerbare.
 
 from __future__ import annotations

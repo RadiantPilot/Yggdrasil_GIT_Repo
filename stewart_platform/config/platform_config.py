@@ -242,6 +242,12 @@ class PlatformConfig:
     # Frekvens for kontrollsløyfen i Hz.
     control_loop_rate_hz: float = 50.0
 
+    # Komplementærfilter-vekting for IMUFusion (0.0–1.0).
+    # Høyere verdi → mer gyroskopvekting (raskere respons, men mer drift).
+    # Lavere verdi → mer akselerometervekting (tregere, men stabil nullreferanse).
+    # Typisk verdi: 0.95–0.98.
+    imu_fusion_alpha: float = 0.98
+
     # Sikkerhetsgrenser.
     safety_config: SafetyConfig = field(default_factory=SafetyConfig)
 
